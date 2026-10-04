@@ -14,18 +14,34 @@ enum class Target { Mac, Work };
 
 static TFT_eSPI tft;
 
+// Block arrow at the screen edge: left = Mac, right = Work.
+static void drawArrow(bool pointLeft, uint16_t color) {
+  const int w = tft.width(), cy = tft.height() / 2;
+  const int margin = 10, len = 60, head = 28, halfHead = 34, halfShaft = 11;
+  if (pointLeft) {
+    const int tip = margin, base = margin + head, tail = margin + len;
+    tft.fillTriangle(tip, cy, base, cy - halfHead, base, cy + halfHead, color);
+    tft.fillRect(base, cy - halfShaft, tail - base, halfShaft * 2, color);
+  } else {
+    const int tip = w - margin, base = w - margin - head, tail = w - margin - len;
+    tft.fillTriangle(tip, cy, base, cy - halfHead, base, cy + halfHead, color);
+    tft.fillRect(tail, cy - halfShaft, base - tail, halfShaft * 2, color);
+  }
+}
+
 static void drawTarget(Target t) {
   const bool mac = (t == Target::Mac);
-  const uint16_t bg = mac ? TFT_NAVY : TFT_DARKGREEN;
+  const uint16_t bg = mac ? tft.color565(0, 140, 60) : tft.color565(190, 30, 30);
   const char *label = mac ? "MAC" : "WORK";
   const char *hint = mac ? "keyboard -> this Mac" : "keyboard -> work laptop";
 
   tft.fillScreen(bg);
+  drawArrow(mac, TFT_WHITE);
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextDatum(MC_DATUM);
   // Font 6 only has digits, so letters need font 4 scaled up.
-  tft.setTextSize(3);
-  tft.drawString(label, tft.width() / 2, tft.height() / 2 - 20, 4);
+  tft.setTextSize(2);
+  tft.drawString(label, tft.width() / 2, tft.height() / 2 - 10, 4);
   tft.setTextSize(1);
   tft.drawString(hint, tft.width() / 2, tft.height() / 2 + 50, 2);
 }
