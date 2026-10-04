@@ -24,7 +24,7 @@ pio run -t upload
 pio device monitor
 ```
 
-Expected: the screen alternates MAC (green, arrow left) and WORK (red, arrow right) every 3 seconds and the serial
+Expected: the screen alternates MAC (green, one arrow left), WORK (red, one arrow right) and GAME (blue, two arrows left), changing every 3 seconds and the serial
 monitor prints `stage 1: display up`.
 
 If something looks wrong:

@@ -1,7 +1,7 @@
 // Stage 1: display only.
-// Draws a large MAC / WORK indicator and flips between them every few seconds
-// so you can confirm the panel, colours, rotation and backlight are right.
-// No input, no Bluetooth yet.
+// Draws a large indicator for the active target and cycles through them every
+// few seconds so you can confirm the panel, colours, rotation and backlight
+// are right. No input, no Bluetooth yet.
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
@@ -10,43 +10,64 @@
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
 #endif
 
-enum class Target { Mac, Work };
+enum class Target { Mac, Work, Game };
+
+struct TargetStyle {
+  const char *label;
+  const char *hint;
+  uint8_t r, g, b;   // background colour
+  bool pointLeft;    // arrow side
+  int heads;         // 1 = single arrow, 2 = double arrow
+};
+
+// Mac: green, one arrow left. Work: red, one arrow right. Game: blue, two arrows left.
+static const TargetStyle kStyles[] = {
+    {"MAC", "keyboard -> this Mac", 0, 140, 60, true, 1},
+    {"WORK", "keyboard -> work laptop", 190, 30, 30, false, 1},
+    {"GAME", "keyboard -> gaming PC", 0, 80, 200, true, 2},
+};
 
 static TFT_eSPI tft;
 
-// Block arrow at the screen edge: left = Mac, right = Work.
-static void drawArrow(bool pointLeft, uint16_t color) {
-  const int w = tft.width(), cy = tft.height() / 2;
-  const int margin = 10, len = 60, head = 28, halfHead = 34, halfShaft = 11;
-  if (pointLeft) {
-    const int tip = margin, base = margin + head, tail = margin + len;
-    tft.fillTriangle(tip, cy, base, cy - halfHead, base, cy + halfHead, color);
-    tft.fillRect(base, cy - halfShaft, tail - base, halfShaft * 2, color);
-  } else {
-    const int tip = w - margin, base = w - margin - head, tail = w - margin - len;
-    tft.fillTriangle(tip, cy, base, cy - halfHead, base, cy + halfHead, color);
-    tft.fillRect(tail, cy - halfShaft, base - tail, halfShaft * 2, color);
+// Arrow geometry (pixels).
+static const int kMargin = 10, kHead = 28, kHalfHead = 34, kHalfShaft = 11;
+static const int kShaft = 32;      // shaft length behind the last head
+static const int kHeadPitch = 40;  // tip-to-tip spacing for a double arrow
+
+static int arrowWidth(int heads) { return kHead + kShaft + (heads - 1) * kHeadPitch; }
+
+// Block arrow at the screen edge; `heads` triangles in a row, shaft behind the last one.
+static void drawArrow(bool pointLeft, int heads, uint16_t color) {
+  const int cy = tft.height() / 2;
+  // Work in "distance from the edge" and mirror for a right-pointing arrow.
+  auto x = [&](int d) { return pointLeft ? kMargin + d : tft.width() - kMargin - d; };
+  for (int i = 0; i < heads; i++) {
+    const int tip = i * kHeadPitch, base = tip + kHead;
+    tft.fillTriangle(x(tip), cy, x(base), cy - kHalfHead, x(base), cy + kHalfHead, color);
   }
+  const int shaftStart = (heads - 1) * kHeadPitch + kHead;
+  const int x0 = x(shaftStart), x1 = x(shaftStart + kShaft);
+  tft.fillRect(min(x0, x1), cy - kHalfShaft, kShaft, kHalfShaft * 2, color);
 }
 
 static void drawTarget(Target t) {
-  const bool mac = (t == Target::Mac);
-  const uint16_t bg = mac ? tft.color565(0, 140, 60) : tft.color565(190, 30, 30);
-  const char *label = mac ? "MAC" : "WORK";
-  const char *hint = mac ? "keyboard -> this Mac" : "keyboard -> work laptop";
+  const TargetStyle &s = kStyles[static_cast<int>(t)];
+  const uint16_t bg = tft.color565(s.r, s.g, s.b);
 
-  // Centre the text in the space the arrow leaves free: shift it away from the arrow.
-  const int cx = tft.width() / 2 + (mac ? 35 : -35);
+  // Centre the text in the space the arrow leaves free (shifted away from it).
+  const int free0 = s.pointLeft ? kMargin + arrowWidth(s.heads) : 0;
+  const int free1 = s.pointLeft ? tft.width() : tft.width() - kMargin - arrowWidth(s.heads);
+  const int cx = (free0 + free1) / 2;
 
   tft.fillScreen(bg);
-  drawArrow(mac, TFT_WHITE);
+  drawArrow(s.pointLeft, s.heads, TFT_WHITE);
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextDatum(MC_DATUM);
   // Font 6 only has digits, so letters need font 4 scaled up.
   tft.setTextSize(2);
-  tft.drawString(label, cx, tft.height() / 2 - 10, 4);
+  tft.drawString(s.label, cx, tft.height() / 2 - 10, 4);
   tft.setTextSize(1);
-  tft.drawString(hint, cx, tft.height() / 2 + 50, 2);
+  tft.drawString(s.hint, cx, tft.height() / 2 + 50, 2);
 }
 
 void setup() {
@@ -62,9 +83,9 @@ void setup() {
 }
 
 void loop() {
-  static Target t = Target::Mac;
+  static int i = 0;
   delay(3000);
-  t = (t == Target::Mac) ? Target::Work : Target::Mac;
-  drawTarget(t);
-  Serial.println(t == Target::Mac ? "MAC" : "WORK");
+  i = (i + 1) % 3;
+  drawTarget(static_cast<Target>(i));
+  Serial.println(kStyles[i].label);
 }
