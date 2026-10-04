@@ -35,15 +35,18 @@ static void drawTarget(Target t) {
   const char *label = mac ? "MAC" : "WORK";
   const char *hint = mac ? "keyboard -> this Mac" : "keyboard -> work laptop";
 
+  // Centre the text in the space the arrow leaves free: shift it away from the arrow.
+  const int cx = tft.width() / 2 + (mac ? 35 : -35);
+
   tft.fillScreen(bg);
   drawArrow(mac, TFT_WHITE);
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextDatum(MC_DATUM);
   // Font 6 only has digits, so letters need font 4 scaled up.
   tft.setTextSize(2);
-  tft.drawString(label, tft.width() / 2, tft.height() / 2 - 10, 4);
+  tft.drawString(label, cx, tft.height() / 2 - 10, 4);
   tft.setTextSize(1);
-  tft.drawString(hint, tft.width() / 2, tft.height() / 2 + 50, 2);
+  tft.drawString(hint, cx, tft.height() / 2 + 50, 2);
 }
 
 void setup() {
