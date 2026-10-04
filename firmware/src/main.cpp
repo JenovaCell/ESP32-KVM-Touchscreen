@@ -23,7 +23,10 @@ static void drawTarget(Target t) {
   tft.fillScreen(bg);
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextDatum(MC_DATUM);
-  tft.drawString(label, tft.width() / 2, tft.height() / 2 - 10, 6);
+  // Font 6 only has digits, so letters need font 4 scaled up.
+  tft.setTextSize(3);
+  tft.drawString(label, tft.width() / 2, tft.height() / 2 - 20, 4);
+  tft.setTextSize(1);
   tft.drawString(hint, tft.width() / 2, tft.height() / 2 + 50, 2);
 }
 
