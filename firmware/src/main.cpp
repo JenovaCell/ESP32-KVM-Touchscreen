@@ -1,13 +1,18 @@
-// Stage 2: display + touch.
+// Stage 3a: display + touch + Bluetooth keyboard.
 // Shows the active target (MAC / WORK / GAME). Tap the left half of the screen
 // to move one step left (toward GAME), the right half to move one step right
 // (toward WORK). The last target is remembered across power cycles.
-// No Bluetooth yet.
+// On WORK or GAME the device is a Bluetooth keyboard for that host. Pairing
+// shows a passkey on the screen.
+//   Hold 1 s:  type a test string into the connected host.
+//   Hold 4 s:  forget the paired host for this target (to pair a new one).
 
 #include <Arduino.h>
 #include <Preferences.h>
 #include <TFT_eSPI.h>
 #include <Wire.h>
+
+#include "ble_kbd.h"
 
 #if KVM_BACKLIGHT_PIN < 0 && !defined(KVM_CI_COMPILE_ONLY)
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
@@ -79,6 +84,23 @@ static void drawTarget(Target t) {
   tft.drawString(s.label, cx, tft.height() / 2 - 10, 4);
   tft.setTextSize(1);
   tft.drawString(s.hint, cx, tft.height() / 2 + 50, 2);
+  if (t != Target::Mac) {
+    tft.drawString(kbd::connected() ? "connected" : "waiting for host", cx,
+                   tft.height() - 28, 2);
+  }
+}
+
+static void drawPasskey(uint32_t code) {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(1);
+  tft.drawString("Enter this code on the host", tft.width() / 2, 60, 2);
+  tft.setTextSize(2);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%06lu", static_cast<unsigned long>(code));
+  tft.drawString(buf, tft.width() / 2, tft.height() / 2 + 10, 4);
+  tft.setTextSize(1);
 }
 
 // --- Touch (FT6336G over I2C) ------------------------------------------------
@@ -126,13 +148,22 @@ static int posOf(Target t) {
 
 static void showCurrent() { drawTarget(kSpatial[spatialPos]); }
 
+static kbd::Slot slotFor(Target t) {
+  switch (t) {
+    case Target::Work: return kbd::Slot::Work;
+    case Target::Game: return kbd::Slot::Game;
+    default: return kbd::Slot::None;
+  }
+}
+
 // dir: -1 = left, +1 = right. Stops at the ends (no wrap).
 static void step(int dir) {
   const int next = constrain(spatialPos + dir, 0, kSpatialCount - 1);
   if (next == spatialPos) return;
   spatialPos = next;
-  showCurrent();
   const Target t = kSpatial[spatialPos];
+  kbd::setSlot(slotFor(t));
+  showCurrent();
   prefs.putUChar("target", static_cast<uint8_t>(t));
   Serial.println(kStyles[static_cast<int>(t)].label);
 }
@@ -152,13 +183,22 @@ void setup() {
   prefs.begin("kvm", false);
   const uint8_t saved = prefs.getUChar("target", static_cast<uint8_t>(Target::Mac));
   if (saved < kSpatialCount) spatialPos = posOf(static_cast<Target>(saved));
+  kbd::begin();
+  kbd::setSlot(slotFor(kSpatial[spatialPos]));
   showCurrent();
-  Serial.println("stage 2: display + touch up");
+  Serial.println("stage 3a: display + touch + bluetooth up");
 }
 
 void loop() {
   static bool wasDown = false;
-  static uint32_t lastRelease = 0;
+  static uint32_t downAt = 0, lastRelease = 0;
+  static int downScreenX = 0;
+
+  kbd::poll();
+
+  uint32_t code;
+  if (kbd::takePasskey(code)) drawPasskey(code);
+  if (kbd::takeChanged()) showCurrent();  // also ends the pairing overlay
 
   int rawX, rawY;
   const bool down = readTouch(rawX, rawY);
@@ -166,11 +206,22 @@ void loop() {
 
   if (down && !wasDown && now - lastRelease > 150) {
     // In landscape the screen's horizontal axis is the panel's native Y axis.
-    int screenX = KVM_TOUCH_FLIP_X ? (tft.width() - 1 - rawY) : rawY;
-    Serial.printf("tap raw=(%d,%d) screenX=%d\n", rawX, rawY, screenX);
-    step(screenX < tft.width() / 2 ? -1 : +1);
+    downScreenX = KVM_TOUCH_FLIP_X ? (tft.width() - 1 - rawY) : rawY;
+    downAt = now;
   }
-  if (!down && wasDown) lastRelease = now;
+  if (!down && wasDown) {
+    lastRelease = now;
+    const uint32_t held = now - downAt;
+    if (held >= 4000) {
+      Serial.println("forget host");
+      kbd::forgetCurrentHost();
+    } else if (held >= 1000) {
+      Serial.println("type test");
+      kbd::typeText("KVM test OK\n");
+    } else {
+      step(downScreenX < tft.width() / 2 ? -1 : +1);
+    }
+  }
   wasDown = down;
 
   delay(15);
