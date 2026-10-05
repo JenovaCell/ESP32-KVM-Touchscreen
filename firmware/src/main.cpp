@@ -6,7 +6,7 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 
-#if KVM_BACKLIGHT_PIN < 0
+#if KVM_BACKLIGHT_PIN < 0 && !defined(KVM_CI_COMPILE_ONLY)
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
 #endif
 

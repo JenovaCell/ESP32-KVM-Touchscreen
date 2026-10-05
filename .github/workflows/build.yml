@@ -1,0 +1,53 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  # Runs on every push. Pins may still be unset, so this only proves the code compiles.
+  compile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install platformio
+      - name: Compile (pins may be unset)
+        working-directory: firmware
+        env:
+          PLATFORMIO_BUILD_FLAGS: -DKVM_CI_COMPILE_ONLY=1
+        run: pio run
+
+  # Manual: Actions tab -> build -> Run workflow. Needs the real pins in platformio.ini.
+  firmware:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install platformio
+      - name: Build
+        working-directory: firmware
+        run: pio run
+      - name: Merge into one image (flash at 0x0)
+        working-directory: firmware
+        run: |
+          B=.pio/build/cyd28
+          PKG=~/.platformio/packages
+          python $PKG/tool-esptoolpy/esptool.py --chip esp32s3 merge_bin \
+            -o $B/kvm-merged.bin --flash_mode dio --flash_freq 80m --flash_size 16MB \
+            0x0 $B/bootloader.bin \
+            0x8000 $B/partitions.bin \
+            0xe000 $PKG/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 $B/firmware.bin
+          ls -l $B/kvm-merged.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kvm-firmware
+          path: |
+            firmware/.pio/build/cyd28/kvm-merged.bin
+            firmware/.pio/build/cyd28/firmware.bin
