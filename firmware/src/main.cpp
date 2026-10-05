@@ -10,6 +10,10 @@
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
 #endif
 
+#ifndef KVM_INVERT_DISPLAY
+#define KVM_INVERT_DISPLAY 0
+#endif
+
 enum class Target { Mac, Work, Game };
 
 struct TargetStyle {
@@ -77,6 +81,7 @@ void setup() {
   digitalWrite(KVM_BACKLIGHT_PIN, HIGH);
 
   tft.init();
+  tft.invertDisplay(KVM_INVERT_DISPLAY);
   tft.setRotation(1);  // landscape; change to 0/2/3 if it is the wrong way up
   drawTarget(Target::Mac);
   Serial.println("stage 1: display up");
