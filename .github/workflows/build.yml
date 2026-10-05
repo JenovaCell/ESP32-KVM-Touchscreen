@@ -24,6 +24,8 @@ jobs:
   firmware:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,3 +53,16 @@ jobs:
           path: |
             firmware/.pio/build/cyd28/kvm-merged.bin
             firmware/.pio/build/cyd28/firmware.bin
+      # Stable link to the newest build:
+      #   https://github.com/<owner>/<repo>/releases/latest/download/kvm-merged.bin
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "fw-${{ github.run_number }}" \
+            firmware/.pio/build/cyd28/kvm-merged.bin \
+            firmware/.pio/build/cyd28/firmware.bin \
+            --repo "${{ github.repository }}" \
+            --title "Firmware build ${{ github.run_number }}" \
+            --notes "Commit ${{ github.sha }}. Flash kvm-merged.bin at 0x0." \
+            --latest
