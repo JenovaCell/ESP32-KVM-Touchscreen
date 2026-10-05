@@ -1,9 +1,10 @@
-// Stage 3a: display + touch + Bluetooth keyboard.
+// Stage 3b: display + touch + Bluetooth keyboard + Mac link.
 // Shows the active target (MAC / WORK / GAME). Tap the left half of the screen
 // to move one step left (toward GAME), the right half to move one step right
 // (toward WORK). The last target is remembered across power cycles.
 // On WORK or GAME the device is a Bluetooth keyboard for that host. Pairing
-// shows a passkey on the screen.
+// shows a passkey on the screen. The Mac app connects over a second secured link,
+// sends keystrokes and can switch the target.
 //   Hold 1 s:  type a test string into the connected host.
 //   Hold 4 s:  forget the paired host for this target (to pair a new one).
 
@@ -84,10 +85,10 @@ static void drawTarget(Target t) {
   tft.drawString(s.label, cx, tft.height() / 2 - 10, 4);
   tft.setTextSize(1);
   tft.drawString(s.hint, cx, tft.height() / 2 + 50, 2);
-  if (t != Target::Mac) {
-    tft.drawString(kbd::connected() ? "connected" : "waiting for host", cx,
-                   tft.height() - 28, 2);
-  }
+  const char *status;
+  if (t == Target::Mac) status = kbd::macConnected() ? "Mac app connected" : "waiting for Mac app";
+  else status = kbd::connected() ? "connected" : "waiting for host";
+  tft.drawString(status, cx, tft.height() - 28, 2);
 }
 
 static void drawPasskey(uint32_t code) {
@@ -163,6 +164,7 @@ static void step(int dir) {
   spatialPos = next;
   const Target t = kSpatial[spatialPos];
   kbd::setSlot(slotFor(t));
+  kbd::publishTarget(static_cast<uint8_t>(t));
   showCurrent();
   prefs.putUChar("target", static_cast<uint8_t>(t));
   Serial.println(kStyles[static_cast<int>(t)].label);
@@ -185,8 +187,9 @@ void setup() {
   if (saved < kSpatialCount) spatialPos = posOf(static_cast<Target>(saved));
   kbd::begin();
   kbd::setSlot(slotFor(kSpatial[spatialPos]));
+  kbd::publishTarget(static_cast<uint8_t>(kSpatial[spatialPos]));
   showCurrent();
-  Serial.println("stage 3a: display + touch + bluetooth up");
+  Serial.println("stage 3b: display + touch + bluetooth up");
 }
 
 void loop() {
@@ -199,6 +202,8 @@ void loop() {
   uint32_t code;
   if (kbd::takePasskey(code)) drawPasskey(code);
   if (kbd::takeChanged()) showCurrent();  // also ends the pairing overlay
+  int macStep;
+  if (kbd::takeStep(macStep)) step(macStep);
 
   int rawX, rawY;
   const bool down = readTouch(rawX, rawY);

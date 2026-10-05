@@ -5,6 +5,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Builds the Mac app. Needs a macOS runner; also proves the Swift code compiles.
+  mac-app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app
+        run: ./mac/build_app.sh
+      - name: Zip
+        run: ditto -c -k --keepParent mac/build/KVMBridge.app KVMBridge.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kvmbridge-mac
+          path: KVMBridge.zip
+
   # Runs on every push. Pins may still be unset, so this only proves the code compiles.
   compile-check:
     runs-on: ubuntu-latest
@@ -22,7 +36,8 @@ jobs:
 
   # Manual: Actions tab -> build -> Run workflow. Needs the real pins in platformio.ini.
   firmware:
-    if: github.event_name == 'workflow_dispatch'
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
+    needs: [mac-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -53,6 +68,12 @@ jobs:
           path: |
             firmware/.pio/build/cyd28/kvm-merged.bin
             firmware/.pio/build/cyd28/firmware.bin
+      - name: Get Mac app
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: kvmbridge-mac
+          path: macapp
       # Stable link to the newest build:
       #   https://github.com/<owner>/<repo>/releases/latest/download/kvm-merged.bin
       - name: Publish release
@@ -62,6 +83,7 @@ jobs:
           gh release create "fw-${{ github.run_number }}" \
             firmware/.pio/build/cyd28/kvm-merged.bin \
             firmware/.pio/build/cyd28/firmware.bin \
+            $(ls macapp/KVMBridge.zip 2>/dev/null) \
             --repo "${{ github.repository }}" \
             --title "Firmware build ${{ github.run_number }}" \
             --notes "Commit ${{ github.sha }}. Flash kvm-merged.bin at 0x0." \

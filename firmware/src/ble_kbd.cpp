@@ -19,73 +19,124 @@ const uint8_t kReportMap[] = {
     0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00,
     0xC0};
 
-const char *kPeerKey[2] = {"peerW", "peerG"};  // stored host address per slot
+// Control service used by the Mac app.
+const char *kCtlSvc = "7d1b0001-5a3c-4f8e-9c1d-4b6a2e0f1a01";
+const char *kKeysUuid = "7d1b0002-5a3c-4f8e-9c1d-4b6a2e0f1a01";   // write: 8-byte HID report
+const char *kCmdUuid = "7d1b0003-5a3c-4f8e-9c1d-4b6a2e0f1a01";    // write: 1 = step left, 2 = step right
+const char *kStateUuid = "7d1b0004-5a3c-4f8e-9c1d-4b6a2e0f1a01";  // read/notify: active target
+
+// Roles: 0 = Work host, 1 = Game host, 2 = Mac app. Stored address per role.
+const char *kPeerKey[3] = {"peerW", "peerG", "peerM"};
+const int kMacRole = 2;
+
+constexpr int kMaxConns = 3;
+
+struct Conn {
+  bool used;
+  bool authed;
+  uint16_t handle;
+  int8_t role;
+  char addr[20];
+};
 
 NimBLEServer *server = nullptr;
 NimBLECharacteristic *input = nullptr;
+NimBLECharacteristic *stateChr = nullptr;
 Preferences prefs;
 
-Slot slot = Slot::None;
-bool haveConn = false;
-bool authed = false;
-bool linked = false;
-uint16_t connHandle = 0;
-std::string peerStr;
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+Conn conns[kMaxConns];
 
+Slot slot = Slot::None;
 volatile bool policyDirty = false;
 volatile bool changed = false;
 volatile bool havePass = false;
 volatile uint32_t pass = 0;
+volatile int pendingStep = 0;
 
-void setLinked(bool v) {
-  if (linked != v) {
-    linked = v;
-    changed = true;
-  }
+Conn *findLocked(uint16_t handle) {
+  for (auto &c : conns)
+    if (c.used && c.handle == handle) return &c;
+  return nullptr;
 }
 
-void disconnectPeer() {
-  if (haveConn && server) server->disconnect(connHandle);
+int roleOfHandle(uint16_t handle) {
+  int role = -1;
+  portENTER_CRITICAL(&mux);
+  Conn *c = findLocked(handle);
+  if (c && c->authed) role = c->role;
+  portEXIT_CRITICAL(&mux);
+  return role;
 }
 
-// Decide whether the connected host is allowed for the current slot.
-// The first host to pair while a slot is active becomes that slot's host.
+// Is the HID host for the current slot connected?
+bool hostLinked() {
+  if (slot == Slot::None) return false;
+  bool ok = false;
+  portENTER_CRITICAL(&mux);
+  for (auto &c : conns)
+    if (c.used && c.authed && c.role == static_cast<int8_t>(slot)) ok = true;
+  portEXIT_CRITICAL(&mux);
+  return ok;
+}
+
+// Decide what each authenticated connection is allowed to be.
+// An unknown device that pairs becomes the host for the active target
+// (or the Mac app when the Mac screen is active), if that role is still free.
 void applyPolicy() {
-  if (!haveConn || !authed) return;
-  if (slot == Slot::None) {
-    disconnectPeer();
-    return;
-  }
-  const int me = static_cast<int>(slot);
-  const int other = 1 - me;
-  const String addr = peerStr.c_str();
-  const String mine = prefs.getString(kPeerKey[me], "");
-  const String theirs = prefs.getString(kPeerKey[other], "");
-  if (mine.length() == 0) {
-    if (addr == theirs) {  // that host belongs to the other slot
-      disconnectPeer();
-      return;
+  Conn snap[kMaxConns];
+  portENTER_CRITICAL(&mux);
+  memcpy(snap, conns, sizeof(conns));
+  portEXIT_CRITICAL(&mux);
+
+  for (auto &c : snap) {
+    if (!c.used || !c.authed) continue;
+    const String addr = c.addr;
+    int role = -1;
+    for (int r = 0; r < 3; r++)
+      if (prefs.getString(kPeerKey[r], "") == addr) role = r;
+    if (role < 0) {
+      const int want = (slot == Slot::None) ? kMacRole : static_cast<int>(slot);
+      if (prefs.getString(kPeerKey[want], "").length() == 0) {
+        prefs.putString(kPeerKey[want], addr);
+        role = want;
+      } else {
+        server->disconnect(c.handle);
+        continue;
+      }
     }
-    prefs.putString(kPeerKey[me], addr);
-    setLinked(true);
-  } else if (addr == mine) {
-    setLinked(true);
-  } else {
-    disconnectPeer();
+    const bool allowed = (role == kMacRole) || (role == static_cast<int>(slot));
+    if (!allowed) {
+      server->disconnect(c.handle);
+      continue;
+    }
+    portENTER_CRITICAL(&mux);
+    Conn *p = findLocked(c.handle);
+    if (p) p->role = role;
+    portEXIT_CRITICAL(&mux);
   }
+  changed = true;
 }
 
 class ServerCb : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
-    connHandle = desc->conn_handle;
-    haveConn = true;
-    authed = false;
-    peerStr = NimBLEAddress(desc->peer_id_addr).toString();
+    portENTER_CRITICAL(&mux);
+    for (auto &c : conns) {
+      if (c.used) continue;
+      c.used = true;
+      c.authed = false;
+      c.role = -1;
+      c.handle = desc->conn_handle;
+      strlcpy(c.addr, NimBLEAddress(desc->peer_id_addr).toString().c_str(), sizeof(c.addr));
+      break;
+    }
+    portEXIT_CRITICAL(&mux);
   }
-  void onDisconnect(NimBLEServer *) override {
-    haveConn = false;
-    authed = false;
-    linked = false;
+  void onDisconnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
+    portENTER_CRITICAL(&mux);
+    Conn *c = findLocked(desc->conn_handle);
+    if (c) c->used = false;
+    portEXIT_CRITICAL(&mux);
     changed = true;  // also ends any pairing overlay
   }
   uint32_t onPassKeyRequest() override {
@@ -94,12 +145,17 @@ class ServerCb : public NimBLEServerCallbacks {
     return pass;
   }
   void onAuthenticationComplete(ble_gap_conn_desc *desc) override {
-    if (!desc->sec_state.encrypted) {
+    if (!desc->sec_state.encrypted || !desc->sec_state.authenticated) {
       server->disconnect(desc->conn_handle);
       return;
     }
-    peerStr = NimBLEAddress(desc->peer_id_addr).toString();
-    authed = true;
+    portENTER_CRITICAL(&mux);
+    Conn *c = findLocked(desc->conn_handle);
+    if (c) {
+      strlcpy(c->addr, NimBLEAddress(desc->peer_id_addr).toString().c_str(), sizeof(c->addr));
+      c->authed = true;
+    }
+    portEXIT_CRITICAL(&mux);
     policyDirty = true;
   }
 };
@@ -109,6 +165,27 @@ void sendReport(uint8_t mods, uint8_t key) {
   input->setValue(r, sizeof(r));
   input->notify();
 }
+
+// The Mac app writes a ready-made 8-byte HID report; it is relayed to the host.
+class KeysCb : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
+    if (roleOfHandle(desc->conn_handle) != kMacRole) return;
+    const std::string v = c->getValue();
+    if (v.size() != 8 || !hostLinked()) return;
+    input->setValue(reinterpret_cast<const uint8_t *>(v.data()), 8);
+    input->notify();
+  }
+};
+
+class CmdCb : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
+    if (roleOfHandle(desc->conn_handle) != kMacRole) return;
+    const std::string v = c->getValue();
+    if (v.empty()) return;
+    if (v[0] == 1) pendingStep = -1;
+    else if (v[0] == 2) pendingStep = +1;
+  }
+};
 
 bool keyFor(char c, uint8_t &mods, uint8_t &key) {
   mods = 0;
@@ -154,16 +231,40 @@ void begin() {
   hid->startServices();
   hid->setBatteryLevel(100);
 
+  NimBLEService *ctl = server->createService(kCtlSvc);
+  NimBLECharacteristic *keys = ctl->createCharacteristic(
+      kKeysUuid, NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
+  keys->setCallbacks(new KeysCb());
+  NimBLECharacteristic *cmd = ctl->createCharacteristic(
+      kCmdUuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
+  cmd->setCallbacks(new CmdCb());
+  stateChr = ctl->createCharacteristic(
+      kStateUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN |
+                      NIMBLE_PROPERTY::NOTIFY);
+  const uint8_t zero = 0;
+  stateChr->setValue(&zero, 1);
+  ctl->start();
+
+  // Advertising data: keyboard appearance, HID service and name. The control
+  // service goes in the scan response (it does not fit alongside the name).
   NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
-  adv->setAppearance(0x03C1);  // keyboard
-  adv->addServiceUUID(hid->hidService()->getUUID());
-  adv->setScanResponse(true);
+  NimBLEAdvertisementData ad;
+  ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+  ad.setAppearance(0x03C1);  // keyboard
+  ad.setCompleteServices(NimBLEUUID(static_cast<uint16_t>(0x1812)));
+  ad.setName("Desk Keyboard");
+  adv->setAdvertisementData(ad);
+  NimBLEAdvertisementData sr;
+  sr.setCompleteServices(NimBLEUUID(kCtlSvc));
+  adv->setScanResponseData(sr);
+  adv->setMinInterval(32);  // 20 ms, so hosts reconnect quickly
+  adv->setMaxInterval(48);
 }
 
 void setSlot(Slot s) {
   slot = s;
-  setLinked(false);
-  policyDirty = haveConn && authed;
+  policyDirty = true;
+  changed = true;
 }
 
 void poll() {
@@ -172,12 +273,21 @@ void poll() {
     applyPolicy();
   }
   NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
-  const bool shouldAdvertise = (slot != Slot::None) && !haveConn;
-  if (shouldAdvertise && !adv->isAdvertising()) adv->start();
-  if (!shouldAdvertise && adv->isAdvertising()) adv->stop();
+  const bool room = server->getConnectedCount() < CONFIG_BT_NIMBLE_MAX_CONNECTIONS;
+  if (room && !adv->isAdvertising()) adv->start();
+  if (!room && adv->isAdvertising()) adv->stop();
 }
 
-bool connected() { return linked && haveConn; }
+bool connected() { return hostLinked(); }
+
+bool macConnected() {
+  bool ok = false;
+  portENTER_CRITICAL(&mux);
+  for (auto &c : conns)
+    if (c.used && c.authed && c.role == kMacRole) ok = true;
+  portEXIT_CRITICAL(&mux);
+  return ok;
+}
 
 bool takePasskey(uint32_t &passkey) {
   if (!havePass) return false;
@@ -192,8 +302,21 @@ bool takeChanged() {
   return true;
 }
 
+bool takeStep(int &dir) {
+  const int s = pendingStep;
+  if (s == 0) return false;
+  pendingStep = 0;
+  dir = s;
+  return true;
+}
+
+void publishTarget(uint8_t target) {
+  stateChr->setValue(&target, 1);
+  stateChr->notify();
+}
+
 void typeText(const char *text) {
-  if (!connected()) return;
+  if (!hostLinked()) return;
   for (; *text; ++text) {
     uint8_t mods, key;
     if (!keyFor(*text, mods, key)) continue;
@@ -205,18 +328,21 @@ void typeText(const char *text) {
 }
 
 void forgetCurrentHost() {
-  if (slot == Slot::None) return;
-  const int me = static_cast<int>(slot);
-  const String mine = prefs.getString(kPeerKey[me], "");
+  const int role = (slot == Slot::None) ? kMacRole : static_cast<int>(slot);
+  const String mine = prefs.getString(kPeerKey[role], "");
   if (mine.length() > 0) {
     for (int i = NimBLEDevice::getNumBonds() - 1; i >= 0; --i) {
       NimBLEAddress a = NimBLEDevice::getBondedAddress(i);
       if (String(a.toString().c_str()) == mine) NimBLEDevice::deleteBond(a);
     }
-    prefs.remove(kPeerKey[me]);
+    prefs.remove(kPeerKey[role]);
   }
-  disconnectPeer();
-  setLinked(false);
+  Conn snap[kMaxConns];
+  portENTER_CRITICAL(&mux);
+  memcpy(snap, conns, sizeof(conns));
+  portEXIT_CRITICAL(&mux);
+  for (auto &c : snap)
+    if (c.used && String(c.addr) == mine) server->disconnect(c.handle);
   changed = true;
 }
 

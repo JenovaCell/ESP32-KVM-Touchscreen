@@ -1,0 +1,261 @@
+import Cocoa
+import CoreGraphics
+
+/// Captures the Mac keyboard. In Mac mode keys pass through untouched. In Work or Game mode
+/// they are swallowed and sent to the device as HID reports. A double-tap of the left or
+/// right Command key switches the device's target (left = toward Game, right = toward Work).
+final class KeyBridge {
+    private let ble: BLEClient
+    private var tap: CFMachPort?
+    private var retryTimer: Timer?
+
+    /// 0 = Mac, 1 = Work, 2 = Game.
+    private(set) var target = 0
+    /// Only trap the keyboard when the device link is up, so it can never lock you out.
+    private var swallowing: Bool { target != 0 && ble.isReady }
+    private(set) var tapActive = false
+    var onTapStatus: ((Bool) -> Void)?
+
+    // HID report state while swallowing.
+    private var mods: UInt8 = 0
+    private var pressed: [UInt8] = []
+    private var swallowedCodes = Set<Int>()
+    private var modState: UInt8 = 0          // modifiers the Mac currently sees as down
+    private var modSwallowed: UInt8 = 0      // of those, the ones whose press we swallowed
+
+    // Command double-tap tracking: index 0 = left, 1 = right.
+    private var cmdDown = [false, false]
+    private var cmdSwallowedDown = [false, false]
+    private var cmdDownAt = [Date.distantPast, Date.distantPast]
+    private var cmdCommitted = [false, false]
+    private var lastTap: [Date?] = [nil, nil]
+    private var pendingTap: [DispatchWorkItem?] = [nil, nil]
+    private let cmdBit: [UInt8] = [0x08, 0x80]
+    private let tapMax: TimeInterval = 0.30      // longest press that counts as a tap
+    private let doubleWindow: TimeInterval = 0.35
+
+    init(ble: BLEClient) { self.ble = ble }
+
+    // MARK: Event tap
+
+    func start() {
+        if tap != nil { return }
+        let mask: CGEventMask =
+            (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let callback: CGEventTapCallBack = { _, type, event, refcon in
+            guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
+            let me = Unmanaged<KeyBridge>.fromOpaque(refcon).takeUnretainedValue()
+            return me.handle(type: type, event: event)
+        }
+        guard let t = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+                                        options: .defaultTap, eventsOfInterest: mask,
+                                        callback: callback, userInfo: refcon) else {
+            // No permission yet; keep retrying until the user grants it.
+            setTapActive(false)
+            retryTimer?.invalidate()
+            retryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                self?.start()
+            }
+            return
+        }
+        retryTimer?.invalidate()
+        retryTimer = nil
+        tap = t
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, t, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: t, enable: true)
+        setTapActive(true)
+    }
+
+    private func setTapActive(_ v: Bool) {
+        if tapActive != v {
+            tapActive = v
+            onTapStatus?(v)
+        }
+    }
+
+    fileprivate func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+        let code = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        switch type {
+        case .flagsChanged: return handleFlags(code: code, event: event)
+        case .keyDown: return handleKey(code: code, down: true, event: event)
+        case .keyUp: return handleKey(code: code, down: false, event: event)
+        default: return Unmanaged.passUnretained(event)
+        }
+    }
+
+    // MARK: Target changes
+
+    func setTarget(_ t: Int) {
+        let wasSwallowing = swallowing
+        target = t
+        if wasSwallowing || swallowing { releaseAll() }
+    }
+
+    /// Release every key on the host (used when switching target or losing the link).
+    func releaseAll() {
+        pressed.removeAll()
+        mods = 0
+        for s in 0..<2 {
+            pendingTap[s]?.cancel()
+            pendingTap[s] = nil
+            lastTap[s] = nil
+        }
+        sendReport()
+    }
+
+    // MARK: Keys
+
+    private func handleKey(code: Int, down: Bool, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let pass = Unmanaged.passUnretained(event)
+        if down {
+            // A key press cancels a Command double-tap and makes held Command keys real modifiers.
+            for s in 0..<2 {
+                lastTap[s] = nil
+                if cmdDown[s] && !cmdCommitted[s] {
+                    cmdCommitted[s] = true
+                    if cmdSwallowedDown[s] { flushPendingTap(s); mods |= cmdBit[s] }
+                }
+            }
+            guard swallowing else { return pass }
+            swallowedCodes.insert(code)
+            let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            if !isRepeat, let usage = HIDMap.usage[code], !pressed.contains(usage), pressed.count < 6 {
+                pressed.append(usage)
+            }
+            sendReport()
+            return nil
+        } else {
+            if swallowedCodes.remove(code) != nil {
+                if let usage = HIDMap.usage[code] { pressed.removeAll { $0 == usage } }
+                sendReport()
+                return nil
+            }
+            return pass
+        }
+    }
+
+    private func handleFlags(code: Int, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let pass = Unmanaged.passUnretained(event)
+        let flags = event.flags
+
+        if code == HIDMap.capsLock {
+            guard swallowing else { return pass }
+            // Caps Lock arrives as a single toggle event: forward it as a tap.
+            var d = Data([mods, 0, HIDMap.capsLockUsage, 0, 0, 0, 0, 0])
+            ble.sendKeys(d)
+            d = Data([mods, 0, 0, 0, 0, 0, 0, 0])
+            ble.sendKeys(d)
+            return nil
+        }
+
+        if code == 0x37 || code == 0x36 {
+            return handleCommand(side: code == 0x37 ? 0 : 1, flags: flags, event: event)
+        }
+
+        guard let bit = HIDMap.modBit[code], let mask = HIDMap.modMask[code] else { return pass }
+        let isDown = flags.contains(mask) && (modState & bit) == 0
+        if isDown {
+            modState |= bit
+            guard swallowing else { return pass }
+            modSwallowed |= bit
+            mods |= bit
+            sendReport()
+            return nil
+        } else {
+            modState &= ~bit
+            let wasSwallowed = (modSwallowed & bit) != 0
+            modSwallowed &= ~bit
+            if wasSwallowed {
+                mods &= ~bit
+                sendReport()
+                return nil
+            }
+            return pass
+        }
+    }
+
+    private func handleCommand(side s: Int, flags: CGEventFlags, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let pass = Unmanaged.passUnretained(event)
+        let now = Date()
+        let isDown = flags.contains(.maskCommand) && !cmdDown[s]
+
+        if isDown {
+            cmdDown[s] = true
+            cmdDownAt[s] = now
+            cmdCommitted[s] = false
+            cmdSwallowedDown[s] = swallowing
+            return swallowing ? nil : pass
+        }
+
+        // Release.
+        cmdDown[s] = false
+        let wasSwallowed = cmdSwallowedDown[s]
+        let held = now.timeIntervalSince(cmdDownAt[s])
+
+        if cmdCommitted[s] {
+            if wasSwallowed { mods &= ~cmdBit[s]; sendReport() }
+            lastTap[s] = nil
+        } else if held < tapMax {
+            if let prev = lastTap[s], now.timeIntervalSince(prev) < doubleWindow {
+                // Double-tap: switch target. Drop the first tap's pending Windows-key press.
+                lastTap[s] = nil
+                pendingTap[s]?.cancel()
+                pendingTap[s] = nil
+                ble.sendStep(s == 0 ? -1 : +1)
+            } else {
+                lastTap[s] = now
+                if wasSwallowed { scheduleHostTap(s) }
+            }
+        } else {
+            // Long lone press: forward it as a Windows-key tap.
+            lastTap[s] = nil
+            if wasSwallowed { sendGuiTap(s) }
+        }
+        return wasSwallowed ? nil : pass
+    }
+
+    // MARK: Reports
+
+    private func sendReport() {
+        var d = Data([mods, 0])
+        for i in 0..<6 { d.append(i < pressed.count ? pressed[i] : 0) }
+        ble.sendKeys(d)
+    }
+
+    private func sendGuiTap(_ s: Int) {
+        mods |= cmdBit[s]
+        sendReport()
+        mods &= ~cmdBit[s]
+        sendReport()
+    }
+
+    /// A lone Command tap in Work/Game mode is only forwarded after the double-tap window
+    /// passes, so a double-tap switches targets without poking the host.
+    private func scheduleHostTap(_ s: Int) {
+        pendingTap[s]?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.pendingTap[s] = nil
+            self.lastTap[s] = nil
+            if self.swallowing { self.sendGuiTap(s) }
+        }
+        pendingTap[s] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + doubleWindow, execute: item)
+    }
+
+    private func flushPendingTap(_ s: Int) {
+        if let item = pendingTap[s] {
+            item.cancel()
+            pendingTap[s] = nil
+            sendGuiTap(s)
+        }
+    }
+}
