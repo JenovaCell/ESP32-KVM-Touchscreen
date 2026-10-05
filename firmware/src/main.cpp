@@ -1,13 +1,20 @@
-// Stage 1: display only.
-// Draws a large indicator for the active target and cycles through them every
-// few seconds so you can confirm the panel, colours, rotation and backlight
-// are right. No input, no Bluetooth yet.
+// Stage 2: display + touch.
+// Shows the active target (MAC / WORK / GAME). Tap the left half of the screen
+// to move one step left (toward GAME), the right half to move one step right
+// (toward WORK). The last target is remembered across power cycles.
+// No Bluetooth yet.
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <TFT_eSPI.h>
+#include <Wire.h>
 
 #if KVM_BACKLIGHT_PIN < 0 && !defined(KVM_CI_COMPILE_ONLY)
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
+#endif
+
+#ifndef KVM_TOUCH_FLIP_X
+#define KVM_TOUCH_FLIP_X 0  // set to 1 if left/right taps feel reversed
 #endif
 
 #ifndef KVM_INVERT_DISPLAY
@@ -74,6 +81,62 @@ static void drawTarget(Target t) {
   tft.drawString(s.hint, cx, tft.height() / 2 + 50, 2);
 }
 
+// --- Touch (FT6336G over I2C) ------------------------------------------------
+
+static const uint8_t kFt6336Addr = 0x38;
+
+// Reads the first touch point in the panel's native portrait coordinates
+// (x 0..239, y 0..319). Returns false if nothing is touching or on I2C error.
+static bool readTouch(int &x, int &y) {
+  Wire.beginTransmission(kFt6336Addr);
+  Wire.write(0x02);  // TD_STATUS, then P1 XH/XL/YH/YL
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(kFt6336Addr, (uint8_t)5) != 5) return false;
+  const uint8_t n = Wire.read() & 0x0F;
+  const uint8_t xh = Wire.read(), xl = Wire.read(), yh = Wire.read(), yl = Wire.read();
+  if (n == 0 || n > 2) return false;
+  x = ((xh & 0x0F) << 8) | xl;
+  y = ((yh & 0x0F) << 8) | yl;
+  return true;
+}
+
+static void touchInit() {
+  pinMode(KVM_TOUCH_RST, OUTPUT);
+  digitalWrite(KVM_TOUCH_RST, LOW);
+  delay(10);
+  digitalWrite(KVM_TOUCH_RST, HIGH);
+  delay(300);
+  Wire.begin(KVM_TOUCH_SDA, KVM_TOUCH_SCL, 400000);
+}
+
+// --- Target selection ----------------------------------------------------------
+
+// Physical left-to-right order, matching the arrows on screen.
+static const Target kSpatial[] = {Target::Game, Target::Mac, Target::Work};
+static const int kSpatialCount = sizeof(kSpatial) / sizeof(kSpatial[0]);
+
+static Preferences prefs;
+static int spatialPos = 1;  // index into kSpatial; starts on Mac
+
+static int posOf(Target t) {
+  for (int i = 0; i < kSpatialCount; i++)
+    if (kSpatial[i] == t) return i;
+  return 1;
+}
+
+static void showCurrent() { drawTarget(kSpatial[spatialPos]); }
+
+// dir: -1 = left, +1 = right. Stops at the ends (no wrap).
+static void step(int dir) {
+  const int next = constrain(spatialPos + dir, 0, kSpatialCount - 1);
+  if (next == spatialPos) return;
+  spatialPos = next;
+  showCurrent();
+  const Target t = kSpatial[spatialPos];
+  prefs.putUChar("target", static_cast<uint8_t>(t));
+  Serial.println(kStyles[static_cast<int>(t)].label);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -83,14 +146,32 @@ void setup() {
   tft.init();
   tft.invertDisplay(KVM_INVERT_DISPLAY);
   tft.setRotation(1);  // landscape; change to 0/2/3 if it is the wrong way up
-  drawTarget(Target::Mac);
-  Serial.println("stage 1: display up");
+
+  touchInit();
+
+  prefs.begin("kvm", false);
+  const uint8_t saved = prefs.getUChar("target", static_cast<uint8_t>(Target::Mac));
+  if (saved < kSpatialCount) spatialPos = posOf(static_cast<Target>(saved));
+  showCurrent();
+  Serial.println("stage 2: display + touch up");
 }
 
 void loop() {
-  static int i = 0;
-  delay(3000);
-  i = (i + 1) % 3;
-  drawTarget(static_cast<Target>(i));
-  Serial.println(kStyles[i].label);
+  static bool wasDown = false;
+  static uint32_t lastRelease = 0;
+
+  int rawX, rawY;
+  const bool down = readTouch(rawX, rawY);
+  const uint32_t now = millis();
+
+  if (down && !wasDown && now - lastRelease > 150) {
+    // In landscape the screen's horizontal axis is the panel's native Y axis.
+    int screenX = KVM_TOUCH_FLIP_X ? (tft.width() - 1 - rawY) : rawY;
+    Serial.printf("tap raw=(%d,%d) screenX=%d\n", rawX, rawY, screenX);
+    step(screenX < tft.width() / 2 ? -1 : +1);
+  }
+  if (!down && wasDown) lastRelease = now;
+  wasDown = down;
+
+  delay(15);
 }
