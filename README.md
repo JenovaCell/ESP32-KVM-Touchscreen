@@ -19,7 +19,6 @@ Target board: Freenove ESP32-S3 CYD 2.8" 240x320 capacitive touch.
 
 ```
 cd firmware
-# 1. Fill in the BOARD VALUES block in platformio.ini (pins, driver, flash).
 pio run -t upload
 pio device monitor
 ```
@@ -29,13 +28,14 @@ monitor prints `stage 1: display up`.
 
 If something looks wrong:
 
-- Blank screen: check the backlight pin and the SPI pins.
+- Blank screen: check the backlight pin (GPIO45) and the SPI pins.
+- Garbage picture: try `ILI9341_2_DRIVER` instead of `ILI9341_DRIVER`.
 - Inverted or odd colours: uncomment `TFT_INVERSION_ON` or `TFT_RGB_ORDER` in `platformio.ini`.
 - Wrong orientation: change `setRotation()` in `src/main.cpp`.
 - Boot loop: the flash settings in `platformio.ini` may not match the board.
 
 ## Unverified
 
-Nothing here has been compiled or run. Every value in the BOARD VALUES block of
-`firmware/platformio.ini` is a placeholder until checked against the Freenove tutorial.
-The build fails on purpose until the pins are set.
+Nothing here has been run on the board yet. The pins and display/touch chips come from the
+ES3C28P datasheet (LCDWIKI), which appears to be the same design as the Freenove board. The
+flash size is confirmed by the chip's Flash ID. Check the pin assignments on first flash.
