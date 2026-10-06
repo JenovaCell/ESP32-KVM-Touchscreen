@@ -43,8 +43,10 @@ constexpr int kMaxConns = 3;
 struct Conn {
   bool used;
   bool authed;
+  bool weClosed;       // we hung up on purpose (policy), as opposed to the host dropping
   uint16_t handle;
   int8_t role;
+  uint32_t authedAt;   // millis() when encryption came up
   char addr[20];
 };
 
@@ -55,6 +57,10 @@ Preferences prefs;
 
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 Conn conns[kMaxConns];
+
+char lastEventText[40] = "none yet";
+
+void setEvent(const char *text) { strlcpy(lastEventText, text, sizeof(lastEventText)); }
 
 Slot slot = Slot::None;
 volatile bool policyDirty = false;
@@ -89,6 +95,21 @@ bool hostLinked() {
   return ok;
 }
 
+// Hang up on purpose and remember why (shown on the screen for diagnosis).
+void closeConn(uint16_t handle, const char *why) {
+  portENTER_CRITICAL(&mux);
+  Conn *c = findLocked(handle);
+  if (c) c->weClosed = true;
+  portEXIT_CRITICAL(&mux);
+  setEvent(why);
+  Serial.printf("refusing connection: %s\n", why);
+  server->disconnect(handle);
+}
+
+// Hosts may use a temporary address when encryption starts and only reveal their
+// permanent (identity) address a moment later, so wait before deciding.
+const uint32_t kIdentityWaitMs = 600;
+
 // Decide what each authenticated connection is allowed to be.
 // An unknown device that pairs becomes the host for the active target
 // (or the Mac app when the Mac screen is active), if that role is still free.
@@ -98,9 +119,19 @@ void applyPolicy() {
   memcpy(snap, conns, sizeof(conns));
   portEXIT_CRITICAL(&mux);
 
+  bool waiting = false;
   for (auto &c : snap) {
     if (!c.used || !c.authed) continue;
-    const String addr = c.addr;
+    if (millis() - c.authedAt < kIdentityWaitMs) {
+      waiting = true;
+      continue;
+    }
+    // Use the identity address as the stack knows it now, not the early one.
+    String addr = c.addr;
+    ble_gap_conn_desc d;
+    if (ble_gap_conn_find(c.handle, &d) == 0)
+      addr = NimBLEAddress(d.peer_id_addr).toString().c_str();
+
     int role = -1;
     for (int r = 0; r < 3; r++)
       if (prefs.getString(kPeerKey[r], "") == addr) role = r;
@@ -109,21 +140,27 @@ void applyPolicy() {
       if (prefs.getString(kPeerKey[want], "").length() == 0) {
         prefs.putString(kPeerKey[want], addr);
         role = want;
+        setEvent(want == kMacRole ? "paired: Mac app" : (want == 0 ? "paired: work host" : "paired: game host"));
       } else {
-        server->disconnect(c.handle);
+        closeConn(c.handle, "refused: unknown device");
         continue;
       }
     }
     const bool allowed = (role == kMacRole) || (role == static_cast<int>(slot));
     if (!allowed) {
-      server->disconnect(c.handle);
+      closeConn(c.handle, "refused: not this target");
       continue;
     }
     portENTER_CRITICAL(&mux);
     Conn *p = findLocked(c.handle);
-    if (p) p->role = role;
+    if (p) {
+      p->role = role;
+      strlcpy(p->addr, addr.c_str(), sizeof(p->addr));
+    }
     portEXIT_CRITICAL(&mux);
+    if (role != kMacRole) setEvent("host connected");
   }
+  if (waiting) policyDirty = true;  // look again shortly
   changed = true;
 }
 
@@ -134,6 +171,8 @@ class ServerCb : public NimBLEServerCallbacks {
       if (c.used) continue;
       c.used = true;
       c.authed = false;
+      c.weClosed = false;
+      c.authedAt = 0;
       c.role = -1;
       c.handle = desc->conn_handle;
       strlcpy(c.addr, NimBLEAddress(desc->peer_id_addr).toString().c_str(), sizeof(c.addr));
@@ -144,8 +183,13 @@ class ServerCb : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
     portENTER_CRITICAL(&mux);
     Conn *c = findLocked(desc->conn_handle);
+    const bool ours = c && c->weClosed;
     if (c) c->used = false;
     portEXIT_CRITICAL(&mux);
+    if (!ours) {
+      setEvent("dropped by host/link");
+      Serial.println("connection dropped by the host or the link");
+    }
     changed = true;  // also ends any pairing overlay
   }
   uint32_t onPassKeyRequest() override {
@@ -155,7 +199,7 @@ class ServerCb : public NimBLEServerCallbacks {
   }
   void onAuthenticationComplete(ble_gap_conn_desc *desc) override {
     if (!desc->sec_state.encrypted || !desc->sec_state.authenticated) {
-      server->disconnect(desc->conn_handle);
+      closeConn(desc->conn_handle, "pairing failed");
       return;
     }
     portENTER_CRITICAL(&mux);
@@ -163,8 +207,10 @@ class ServerCb : public NimBLEServerCallbacks {
     if (c) {
       strlcpy(c->addr, NimBLEAddress(desc->peer_id_addr).toString().c_str(), sizeof(c->addr));
       c->authed = true;
+      c->authedAt = millis();
     }
     portEXIT_CRITICAL(&mux);
+    setEvent("encrypted, checking host");
     policyDirty = true;
   }
 };
@@ -223,6 +269,15 @@ void begin() {
   prefs.begin("kvmble", false);
 
   NimBLEDevice::init("Desk Keyboard");
+  if (prefs.getUChar("schema", 0) < kSchema) {
+    // Earlier versions stored hosts by an address that could be the wrong one.
+    // Start clean: every device has to pair again once.
+    NimBLEDevice::deleteAllBonds();
+    prefs.remove("peerW");
+    prefs.remove("peerG");
+    prefs.remove("peerM");
+    prefs.putUChar("schema", kSchema);
+  }
   NimBLEDevice::setSecurityAuth(true, true, true);  // bonding, MITM, secure connections
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
@@ -300,6 +355,10 @@ bool macConnected() {
   portEXIT_CRITICAL(&mux);
   return ok;
 }
+
+const char *lastEvent() { return lastEventText; }
+
+int bondCount() { return NimBLEDevice::getNumBonds(); }
 
 bool takePasskey(uint32_t &passkey) {
   if (!havePass) return false;

@@ -99,6 +99,9 @@ static void drawTarget(Target t) {
   if (t == Target::Mac) status = kbd::macConnected() ? "Mac app connected" : "waiting for Mac app";
   else status = kbd::connected() ? "connected" : "waiting for host";
   tft.drawString(status, cx, tft.height() - 28, 2);
+  char diag[56];
+  snprintf(diag, sizeof(diag), "%s | paired: %d", kbd::lastEvent(), kbd::bondCount());
+  tft.drawString(diag, cx, tft.height() - 10, 1);
 }
 
 static void drawSplash() {

@@ -25,6 +25,11 @@ bool connected();
 // True when the Mac app is connected and paired.
 bool macConnected();
 
+// Short text for the screen: what happened to the last connection, and how many
+// devices are paired with the board.
+const char *lastEvent();
+int bondCount();
+
 // True once per pairing attempt; `passkey` is the 6-digit code to show on screen.
 bool takePasskey(uint32_t &passkey);
 

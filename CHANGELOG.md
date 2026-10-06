@@ -9,6 +9,28 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.4.2] - 2026-10-06
+
+### Fixed
+- The work laptop connected, then was disconnected a moment later (seen on the laptop's
+  Bluetooth status; KVM-2 step 7). Suspected cause: the board identified a device by the
+  address it used when encryption started, which can be a temporary address, so a returning
+  device did not match and was refused. The board now waits briefly and uses the device's
+  permanent address. This is a suspected fix and is unverified on hardware.
+
+### Added
+- Diagnostic line at the bottom of the WORK, GAME and MAC screens: what happened to the last
+  connection (`refused: ...`, `dropped by host/link`, `paired: ...`) and how many devices are
+  paired. It also prints to the serial output.
+
+### Changed
+- Pairings are reset the first time this version boots. Every device pairs again once: remove
+  "Desk Keyboard" from the laptop's and the Mac's Bluetooth lists first, then pair the Mac app
+  (MAC screen), the work laptop (WORK screen) and the gaming PC (GAME screen).
+
+### Status
+- Unverified on hardware.
+
 ## [0.4.1] - 2026-10-06
 
 ### Added
