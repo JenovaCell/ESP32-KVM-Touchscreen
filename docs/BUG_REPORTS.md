@@ -39,8 +39,7 @@ Blocks use / annoying / cosmetic
 ```
 
 Version numbers matter most: they tell us which build to look at. "Steps to Reproduce" is second:
-without it a bug is a guess. The same template is set up as the default description of Bug tickets
-in Jira (see below).
+without it a bug is a guess.
 
 ## What happens next
 
