@@ -104,12 +104,14 @@ old Bluetooth pairing on first boot and keeps the work laptop and gaming PC pair
 Mac menu says "Keyboard access: waiting" although KVMBridge is switched on, run the
 `tccutil reset All ...` command above.
 
-Pairings and firmware updates: the board never wipes pairings by itself, and the intent is that
-a firmware update keeps the work laptop and gaming PC pairings. That was not confirmed when
-tested (0.5.4, app-only flash): the saved screen was kept but the work laptop had to be paired
-again (KVM-22, under investigation). If a device stops typing after an update, hold the screen for
-4 seconds on that target's screen (forget host), remove "Desk Keyboard" on the device, and pair
-again.
+Pairings and firmware updates: the board never wipes pairings by itself. To update, flash
+`firmware-v<version>.bin` at `0x10000` (app only, no erase): the work laptop pairing survived
+this when tested (0.5.4 flashed over 0.5.4). The all-in-one `kvm-merged-v<version>.bin` at `0x0`
+is for a first flash; whether it keeps pairings has not been tested. Once, after moving from
+0.5.2 to 0.5.4, the work laptop had to be paired again (KVM-22); that pairing predates the
+tested flash and the cause was not identified. If a device stops typing after an update, hold the
+screen for 4 seconds on that target's screen (forget host), remove "Desk Keyboard" on the device,
+and pair again.
 
 ## Verified on the board
 
