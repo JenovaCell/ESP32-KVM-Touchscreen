@@ -9,6 +9,16 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.5.1] - 2026-10-06
+
+Release packaging only (KVM-19). No change to the firmware or the Mac app behaviour.
+
+### Changed
+- Release files now carry the version in their name: `kvm-merged-v0.5.1.bin`,
+  `firmware-v0.5.1.bin`, `KVMBridge-v0.5.1.zip`. The plain-named copies (`kvm-merged.bin`,
+  `firmware.bin`, `KVMBridge.zip`) are still attached, so `releases/latest/download/...` links
+  keep working.
+
 ## [0.5.0] - 2026-10-06
 
 **Breaking: the Mac app now talks to the board over the USB cable instead of Bluetooth.**
@@ -47,8 +57,9 @@ behind KVM-13. Replace the firmware and the Mac app together.
   `tccutil reset All io.github.jenovacell.kvmbridge`, reopen the app and grant the prompts.
 
 ### Status
-- Unverified on hardware. Compiles in CI. Open questions: how macOS 27 treats the serial port,
-  and whether opening the port resets the board.
+- Verified on hardware (macOS 27): USB link, target switching with double-tap Right Command,
+  unplug/replug recovery, no more repeating letters on WORK. Known issue: holding a key repeats
+  inconsistently on WORK (KVM-20).
 
 ## [0.4.4] - 2026-10-06
 

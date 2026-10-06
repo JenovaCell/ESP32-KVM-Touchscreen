@@ -62,7 +62,8 @@ how fixes flow back to you.
 ## Flash and check
 
 Easiest: run the **build** workflow (Actions tab, Run workflow), then download
-`kvm-merged.bin` from the newest release and flash it at `0x0` in esptool.js.
+`kvm-merged-v<version>.bin` (or the plain `kvm-merged.bin`, same file) from the newest release
+and flash it at `0x0` in esptool.js.
 Or locally:
 
 ```

@@ -89,12 +89,20 @@ jobs:
         run: |
           VERSION=$(tr -d '[:space:]' < VERSION)
           ./scripts/release_notes.sh > notes.md
-          printf '\nBuild %s, commit %s.\nFlash `kvm-merged.bin` at `0x0`. The Mac app is `KVMBridge.zip`.\n' \
-            "${{ github.run_number }}" "${{ github.sha }}" >> notes.md
+          # Versioned copies for saving on disk; plain names stay so the releases/latest links work.
+          mkdir -p dist
+          cp firmware/.pio/build/cyd28/kvm-merged.bin "dist/kvm-merged-v${VERSION}.bin"
+          cp firmware/.pio/build/cyd28/firmware.bin "dist/firmware-v${VERSION}.bin"
+          cp macapp/KVMBridge.zip "dist/KVMBridge-v${VERSION}.zip"
+          printf '\nBuild %s, commit %s.\nFlash `kvm-merged-v%s.bin` at `0x0`. The Mac app is `KVMBridge-v%s.zip`.\nThe same files without the version in the name (`kvm-merged.bin`, `KVMBridge.zip`) are attached too, so `releases/latest/download/...` links keep working.\n' \
+            "${{ github.run_number }}" "${{ github.sha }}" "$VERSION" "$VERSION" >> notes.md
           gh release create "v${VERSION}-b${{ github.run_number }}" \
+            dist/kvm-merged-v${VERSION}.bin \
+            dist/firmware-v${VERSION}.bin \
+            dist/KVMBridge-v${VERSION}.zip \
             firmware/.pio/build/cyd28/kvm-merged.bin \
             firmware/.pio/build/cyd28/firmware.bin \
-            $(ls macapp/KVMBridge.zip 2>/dev/null) \
+            macapp/KVMBridge.zip \
             --repo "${{ github.repository }}" \
             --title "v${VERSION} (build ${{ github.run_number }})" \
             --notes-file notes.md \
