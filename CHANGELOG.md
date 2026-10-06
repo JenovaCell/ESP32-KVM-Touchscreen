@@ -9,6 +9,30 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.6.0] - 2026-10-06
+
+Faster switching (KVM-23, option A): both PCs stay connected, the target only chooses who gets keys.
+
+### Changed
+- Board (KVM-23): the work laptop and gaming PC stay connected to the board on every screen,
+  including MAC. The board advertises whenever it has a free link instead of only on WORK and
+  GAME. Switching target therefore no longer waits for the PC to scan and reconnect (up to 10 s
+  on MAC to WORK before). Key reports are sent only to the current target's PC, never to both.
+- Board: when you leave WORK or GAME, an "all keys up" report is sent to that PC first, so no key
+  stays pressed there.
+- Board: an unknown device can only be paired on the WORK or GAME screen (`refused: pair on
+  WORK/GAME screen` on the MAC screen). Events now read `work host connected` / `game host
+  connected`.
+
+### Removed
+- The "refused: MAC screen" and "refused: not this target" refusals: known PCs are accepted on any
+  screen.
+
+### Status
+- Unverified on hardware. Expected: after a switch the PC types within about a second; the
+  Windows Bluetooth list shows "Desk Keyboard" as connected even while the Mac is active.
+- Risk to check: keys must reach only the current target's PC, and Game was not tested before.
+
 ## [0.5.4] - 2026-10-06
 
 Decision KVM-15 (option C): keep the identity-address matching from 0.4.2, remove the pairing wipe.

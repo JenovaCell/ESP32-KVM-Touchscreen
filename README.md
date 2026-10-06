@@ -36,8 +36,8 @@ push. CI fails if the two disagree. Releases use the changelog entry as their no
 
 **On the board** (small text at the bottom of every screen): the previous event, then the
 latest event with `| paired: N`. Each event starts with seconds since boot. Examples:
-`paired: work host`, `host connected`, `link up, not yet encrypted`,
-`refused: unknown device`, `refused: not this target`, `refused: MAC screen`,
+`paired: work host`, `work host connected`, `link up, not yet encrypted`,
+`refused: unknown device`, `refused: pair on WORK/GAME screen`,
 `dropped: remote ended (0x13)` (the other side hung up), `dropped: link timeout (0x08)` (the
 radio link was lost), `encryption failed (n)`, `repeat pairing: bond replaced`.
 
@@ -96,8 +96,10 @@ If something looks wrong:
 3. Pair the work laptop with "Desk Keyboard" while the board is on the WORK screen (type the
    code from the board's screen). Pair the gaming PC the same way on the GAME screen.
 4. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
-   Left Command (toward GAME) or Right Command (toward WORK) on the Mac. On the MAC screen the
-   board is not a Bluetooth keyboard for anyone.
+   Left Command (toward GAME) or Right Command (toward WORK) on the Mac. The work laptop and
+   gaming PC stay connected to the board on every screen, so switching does not wait for a
+   reconnect; only the PC of the current target receives keys. New devices can only be paired
+   on the WORK or GAME screen.
 
 Upgrading to 0.5.0: replace both the firmware and the Mac app. The board forgets the Mac's
 old Bluetooth pairing on first boot and keeps the work laptop and gaming PC pairings. If the

@@ -64,16 +64,22 @@ Conn *findLocked(uint16_t handle) {
   return nullptr;
 }
 
-// Is the HID host for the current slot connected?
-bool hostLinked() {
-  if (slot == Slot::None) return false;
-  bool ok = false;
+constexpr uint16_t kNoConn = 0xFFFF;
+
+// Connection handle of the HID host for the current target, or kNoConn. Both hosts stay
+// connected all the time (KVM-23); only this one receives key reports.
+uint16_t activeHandle() {
+  if (slot == Slot::None) return kNoConn;
+  uint16_t h = kNoConn;
   portENTER_CRITICAL(&mux);
   for (auto &c : conns)
-    if (c.used && c.authed && c.role == static_cast<int8_t>(slot)) ok = true;
+    if (c.used && c.authed && c.role == static_cast<int8_t>(slot)) h = c.handle;
   portEXIT_CRITICAL(&mux);
-  return ok;
+  return h;
 }
+
+// Is the HID host for the current target connected?
+bool hostLinked() { return activeHandle() != kNoConn; }
 
 // Hang up on purpose and remember why (shown on the screen for diagnosis).
 void closeConn(uint16_t handle, const char *why) {
@@ -90,9 +96,9 @@ void closeConn(uint16_t handle, const char *why) {
 // permanent (identity) address a moment later, so wait before deciding.
 const uint32_t kIdentityWaitMs = 600;
 
-// Decide what each authenticated connection is allowed to be.
-// An unknown device that pairs becomes the host for the active target, if that role is
-// still free. On the MAC screen the board is not a keyboard for anyone.
+// Decide what each authenticated connection is. Known hosts (work, game) are accepted on any
+// screen, so switching target needs no reconnect. An unknown device that pairs becomes the host
+// for the active target, if that role is still free; on the MAC screen nobody can pair.
 void applyPolicy() {
   Conn snap[kMaxConns];
   portENTER_CRITICAL(&mux);
@@ -102,10 +108,6 @@ void applyPolicy() {
   bool waiting = false;
   for (auto &c : snap) {
     if (!c.used || !c.authed) continue;
-    if (slot == Slot::None) {
-      closeConn(c.handle, "refused: MAC screen");
-      continue;
-    }
     if (millis() - c.authedAt < kIdentityWaitMs) {
       waiting = true;
       continue;
@@ -116,11 +118,15 @@ void applyPolicy() {
     if (ble_gap_conn_find(c.handle, &d) == 0)
       addr = NimBLEAddress(d.peer_id_addr).toString().c_str();
 
-    const int want = static_cast<int>(slot);
     int role = -1;
     for (int r = 0; r < 2; r++)
       if (prefs.getString(kPeerKey[r], "") == addr) role = r;
     if (role < 0) {
+      if (slot == Slot::None) {
+        closeConn(c.handle, "refused: pair on WORK/GAME screen");
+        continue;
+      }
+      const int want = static_cast<int>(slot);
       if (prefs.getString(kPeerKey[want], "").length() == 0) {
         prefs.putString(kPeerKey[want], addr);
         role = want;
@@ -130,18 +136,16 @@ void applyPolicy() {
         continue;
       }
     }
-    if (role != want) {
-      closeConn(c.handle, "refused: not this target");
-      continue;
-    }
+    bool newlyKnown = false;
     portENTER_CRITICAL(&mux);
     Conn *p = findLocked(c.handle);
     if (p) {
-      p->role = role;
+      newlyKnown = (p->role != role);
+      p->role = static_cast<int8_t>(role);
       strlcpy(p->addr, addr.c_str(), sizeof(p->addr));
     }
     portEXIT_CRITICAL(&mux);
-    setEvent("host connected");
+    if (newlyKnown) setEvent(role == 0 ? "work host connected" : "game host connected");
   }
   if (waiting) policyDirty = true;  // look again shortly
   changed = true;
@@ -249,24 +253,21 @@ class ServerCb : public NimBLEServerCallbacks {
   }
 };
 
+// Sends one 8-byte HID report to ONE connected host. (characteristic->notify() would send it
+// to every subscribed host, and the other PC must not receive these keys.)
+bool notifyTo(uint16_t handle, const uint8_t *report) {
+  struct os_mbuf *om = ble_hs_mbuf_from_flat(report, 8);
+  if (om == nullptr) return false;
+  return ble_gatts_notify_custom(handle, input->getHandle(), om) == 0;
+}
+
 void sendReport(uint8_t mods, uint8_t key) {
   uint8_t r[8] = {mods, 0, key, 0, 0, 0, 0, 0};
-  input->setValue(r, sizeof(r));
-  input->notify();
+  const uint16_t h = activeHandle();
+  if (h != kNoConn) notifyTo(h, r);
 }
 
 volatile uint32_t statRx = 0, statTxOk = 0, statTxFail = 0, statNoHost = 0, statBad = 0;
-
-// notify() returns bool in some library versions and void in others; report success either way.
-template <typename C>
-auto notifyChecked(C *c, int) -> decltype(static_cast<bool>(c->notify())) {
-  return static_cast<bool>(c->notify());
-}
-template <typename C>
-bool notifyChecked(C *c, long) {
-  c->notify();
-  return true;
-}
 
 bool keyFor(char c, uint8_t &mods, uint8_t &key) {
   mods = 0;
@@ -338,6 +339,14 @@ void begin() {
 }
 
 void setSlot(Slot s) {
+  if (s != slot) {
+    // Release anything held on the host we are leaving, so no key stays pressed there.
+    const uint16_t old = activeHandle();
+    if (old != kNoConn) {
+      static const uint8_t allUp[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+      notifyTo(old, allUp);
+    }
+  }
   slot = s;
   policyDirty = true;
   changed = true;
@@ -349,21 +358,8 @@ void poll() {
     applyPolicy();
   }
   NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
-  if (slot == Slot::None) {
-    // MAC screen: the board is not a keyboard for any host. Stop advertising and hang up.
-    if (adv->isAdvertising()) adv->stop();
-    static uint32_t lastDrop = 0;
-    if (server->getConnectedCount() > 0 && millis() - lastDrop > 500) {
-      lastDrop = millis();
-      Conn snap[kMaxConns];
-      portENTER_CRITICAL(&mux);
-      memcpy(snap, conns, sizeof(conns));
-      portEXIT_CRITICAL(&mux);
-      for (auto &c : snap)
-        if (c.used) closeConn(c.handle, "refused: MAC screen");
-    }
-    return;
-  }
+  // Always advertise while there is room, on every screen, so the work and game PCs reconnect
+  // by themselves and are already linked when you switch to them.
   const bool room = server->getConnectedCount() < CONFIG_BT_NIMBLE_MAX_CONNECTIONS;
   if (room && !adv->isAdvertising()) adv->start();
   if (!room && adv->isAdvertising()) adv->stop();
@@ -378,8 +374,7 @@ bool relayReport(const uint8_t *report) {
     statNoHost++;
     return false;
   }
-  input->setValue(report, 8);
-  if (notifyChecked(input, 0)) {
+  if (notifyTo(activeHandle(), report)) {
     statTxOk++;
     return true;
   }
