@@ -34,6 +34,11 @@ latest event with `| paired: N`. Each event starts with seconds since boot. Exam
 `dropped: remote ended (0x13)` (the other side hung up), `dropped: link timeout (0x08)` (the
 radio link was lost), `encryption failed (n)`, `repeat pairing: bond replaced`.
 
+**Key counters** (WORK and GAME screens): `keys rx N tx N fail N` is how many key reports
+the board received from the Mac app, passed on to the host, and failed to pass on. The Mac app
+menu shows `keys sent N, buffer waits N, dropped N, release re-sends N`. If the Mac says it
+sent far more than the board received, reports are being lost between them.
+
 **In the Mac app menu:** "Recent events" lists the latest Bluetooth steps and errors.
 "Copy diagnostics" copies everything (versions, status lines, full event list) to the
 clipboard; paste it into the Jira ticket. If keyboard access says "waiting" even though

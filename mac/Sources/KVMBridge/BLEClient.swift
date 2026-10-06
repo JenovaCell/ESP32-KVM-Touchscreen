@@ -71,10 +71,81 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
 
     // MARK: Sending
 
+    // Key reports go out in order, only when the key state changes, and only when the Bluetooth
+    // buffer has room (a write-without-response is silently dropped when it does not).
+    private var sendQueue: [Data] = []
+    private var lastQueued: Data?
+    private var resendItems: [DispatchWorkItem] = []
+    private var waitingForBuffer = false
+    private(set) var reportsSent = 0
+    private(set) var bufferWaits = 0
+    private(set) var reportsDropped = 0
+    private(set) var releaseResends = 0
+
+    var statsText: String {
+        "keys sent \(reportsSent), buffer waits \(bufferWaits), dropped \(reportsDropped), release re-sends \(releaseResends)"
+    }
+
     /// Sends an 8-byte HID report (modifiers, reserved, 6 keys).
     func sendKeys(_ report: Data) {
+        guard isReady, peripheral != nil, keysChar != nil else { return }
+        let allUp = !report.contains { $0 != 0 }
+        enqueue(report, force: false)
+        // A lost "all keys up" makes the other computer repeat a letter, so repeat it shortly after.
+        cancelResends()
+        if allUp { scheduleReleaseResends(report) }
+    }
+
+    private func enqueue(_ report: Data, force: Bool) {
+        if !force && report == lastQueued { return }  // auto-repeat events add nothing new
+        lastQueued = report
+        sendQueue.append(report)
+        if sendQueue.count > 64 {
+            let extra = sendQueue.count - 64
+            sendQueue.removeFirst(extra)
+            reportsDropped += extra
+        }
+        flush()
+    }
+
+    private func flush() {
         guard isReady, let p = peripheral, let c = keysChar else { return }
-        p.writeValue(report, for: c, type: .withoutResponse)
+        while let next = sendQueue.first {
+            if !p.canSendWriteWithoutResponse {
+                if !waitingForBuffer {
+                    waitingForBuffer = true
+                    bufferWaits += 1
+                    log("Bluetooth buffer full: waiting (\(sendQueue.count) queued)")
+                }
+                return
+            }
+            waitingForBuffer = false
+            p.writeValue(next, for: c, type: .withoutResponse)
+            reportsSent += 1
+            sendQueue.removeFirst()
+        }
+    }
+
+    func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        waitingForBuffer = false
+        flush()
+    }
+
+    private func cancelResends() {
+        resendItems.forEach { $0.cancel() }
+        resendItems.removeAll()
+    }
+
+    private func scheduleReleaseResends(_ report: Data) {
+        for delay in [0.04, 0.15] {
+            let item = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.releaseResends += 1
+                self.enqueue(report, force: true)
+            }
+            resendItems.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        }
     }
 
     /// Asks the device to move its target: -1 = left, +1 = right.
@@ -179,6 +250,10 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
     }
 
     private func reset(reason: String) {
+        sendQueue.removeAll()
+        lastQueued = nil
+        waitingForBuffer = false
+        cancelResends()
         isReady = false
         keysChar = nil
         cmdChar = nil

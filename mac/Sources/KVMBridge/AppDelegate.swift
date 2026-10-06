@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let ble = BLEClient()
     private lazy var keys = KeyBridge(ble: ble)
@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let deviceVersionItem = NSMenuItem(title: "Device firmware: not connected", action: nil, keyEquivalent: "")
     private let bleItem = NSMenuItem(title: "Bluetooth: starting…", action: nil, keyEquivalent: "")
     private let permItem = NSMenuItem(title: "Keyboard access: waiting", action: nil, keyEquivalent: "")
+    private let statsItem = NSMenuItem(title: "Keys sent: 0", action: nil, keyEquivalent: "")
     private let eventsItem = NSMenuItem(title: "Recent events", action: nil, keyEquivalent: "")
     private let eventsMenu = NSMenu()
 
@@ -70,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(bleItem)
         menu.addItem(permItem)
+        menu.addItem(statsItem)
         eventsItem.submenu = eventsMenu
         menu.addItem(eventsItem)
         let copy = NSMenuItem(title: "Copy diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
@@ -82,7 +84,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(hint2)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.delegate = self
         statusItem.menu = menu
+    }
+
+    /// Refresh the key counters each time the menu is opened.
+    func menuWillOpen(_ menu: NSMenu) {
+        statsItem.title = ble.statsText
     }
 
     /// Shows the newest Bluetooth events in the "Recent events" submenu.
@@ -103,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             deviceVersionItem.title,
             bleItem.title,
             permItem.title,
+            ble.statsText,
             "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "",
         ]

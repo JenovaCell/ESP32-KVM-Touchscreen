@@ -77,9 +77,27 @@ static void drawArrow(bool pointLeft, int heads, uint16_t color) {
   tft.fillRect(min(x0, x1), cy - kHalfShaft, kShaft, kHalfShaft * 2, color);
 }
 
+static uint16_t gBg = 0;  // background colour of the current screen
+
+// Shows how many key reports the board has relayed (WORK and GAME screens only).
+static void drawCounters(Target t) {
+  if (t == Target::Mac) return;
+  const kbd::KeyStats k = kbd::keyStats();
+  const int y = tft.height() - 28;
+  char buf[56];
+  snprintf(buf, sizeof(buf), "keys rx %lu tx %lu fail %lu", static_cast<unsigned long>(k.rx),
+           static_cast<unsigned long>(k.txOk), static_cast<unsigned long>(k.txFail));
+  tft.fillRect(0, y - 5, tft.width(), 10, gBg);
+  tft.setTextColor(TFT_WHITE, gBg);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(1);
+  tft.drawString(buf, tft.width() / 2, y, 1);
+}
+
 static void drawTarget(Target t) {
   const TargetStyle &s = kStyles[static_cast<int>(t)];
   const uint16_t bg = tft.color565(s.r, s.g, s.b);
+  gBg = bg;
 
   // Centre the text in the space the arrow leaves free (shifted away from it).
   const int free0 = s.pointLeft ? kMargin + arrowWidth(s.heads) : 0;
@@ -98,13 +116,14 @@ static void drawTarget(Target t) {
   const char *status;
   if (t == Target::Mac) status = kbd::macConnected() ? "Mac app connected" : "waiting for Mac app";
   else status = kbd::connected() ? "connected" : "waiting for host";
-  tft.drawString(status, cx, tft.height() - 36, 2);
+  tft.drawString(status, cx, tft.height() - 40, 2);
   // Diagnostics: the previous and the latest Bluetooth event, centred on the screen.
   char diag[64];
   snprintf(diag, sizeof(diag), "%.50s", kbd::prevEvent());
-  tft.drawString(diag, tft.width() / 2, tft.height() - 20, 1);
+  tft.drawString(diag, tft.width() / 2, tft.height() - 18, 1);
   snprintf(diag, sizeof(diag), "%.38s | paired: %d", kbd::lastEvent(), kbd::bondCount());
-  tft.drawString(diag, tft.width() / 2, tft.height() - 10, 1);
+  tft.drawString(diag, tft.width() / 2, tft.height() - 9, 1);
+  drawCounters(t);
 }
 
 static void drawSplash() {
@@ -239,6 +258,15 @@ void loop() {
   int rawX, rawY;
   const bool down = readTouch(rawX, rawY);
   const uint32_t now = millis();
+
+  // Refresh the key counters at most every 400 ms, and only when they changed.
+  static uint32_t lastCounterDraw = 0, lastRx = 0;
+  const uint32_t rxNow = kbd::keyStats().rx;
+  if (rxNow != lastRx && now - lastCounterDraw > 400) {
+    lastRx = rxNow;
+    lastCounterDraw = now;
+    drawCounters(kSpatial[spatialPos]);
+  }
 
   if (down && !wasDown && now - lastRelease > 150) {
     // In landscape the screen's horizontal axis is the panel's native Y axis.

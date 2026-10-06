@@ -31,6 +31,16 @@ const char *lastEvent();
 const char *prevEvent();  // the event before that
 int bondCount();
 
+// Counters for keystroke reports relayed from the Mac app to the host (for diagnosis).
+struct KeyStats {
+  uint32_t rx;       // 8-byte key reports received from the Mac app
+  uint32_t txOk;     // notifications sent to the host
+  uint32_t txFail;   // notifications that reported failure (only detectable on some library versions)
+  uint32_t noHost;   // reports received while no host was connected
+  uint32_t badSize;  // reports with the wrong size
+};
+KeyStats keyStats();
+
 // True once per pairing attempt; `passkey` is the 6-digit code to show on screen.
 bool takePasskey(uint32_t &passkey);
 

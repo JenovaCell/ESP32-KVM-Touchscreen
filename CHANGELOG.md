@@ -9,6 +9,32 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.4.4] - 2026-10-06
+
+Fix attempt and instrumentation for KVM-16 (letters repeat on the Work PC). The cause is not
+yet proven: the safeguards below may hide the symptom, so counters ship with them to show
+where a key release goes missing.
+
+### Added
+- Board (KVM-16): the WORK and GAME screens show `keys rx N tx N fail N`: key reports received
+  from the Mac app, notifications sent to the host, and failures where the library reports
+  them. Compare `rx` with what you typed to see whether keys reach the board.
+- Mac app (KVM-16): the menu shows `keys sent N, buffer waits N, dropped N, release re-sends N`
+  (also included in "Copy diagnostics").
+
+### Changed
+- Mac app (KVM-16): key reports are queued and sent in order, and only when the Bluetooth
+  buffer has room. Before, they were written without checking and macOS can silently drop a
+  write when its buffer is full.
+- Mac app (KVM-16): a report is only sent when the key state changes. Auto-repeat events from
+  holding a key no longer flood the link.
+- Mac app (KVM-16): after the last key is released, the "all keys up" report is re-sent 40 ms
+  and 150 ms later, so a lost release is corrected instead of waiting for the next key press.
+- Board: the bottom of the screen is re-laid out to fit the counters.
+
+### Status
+- Unverified on hardware.
+
 ## [0.4.3] - 2026-10-06
 
 Diagnostic build for KVM-13 (Mac app pairs, then the link drops). **No change to pairing or

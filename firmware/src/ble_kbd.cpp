@@ -291,13 +291,35 @@ class StateCb : public NimBLECharacteristicCallbacks {
   }
 };
 
+volatile uint32_t statRx = 0, statTxOk = 0, statTxFail = 0, statNoHost = 0, statBad = 0;
+
+// notify() returns bool in some library versions and void in others; report success either way.
+template <typename C>
+auto notifyChecked(C *c, int) -> decltype(static_cast<bool>(c->notify())) {
+  return static_cast<bool>(c->notify());
+}
+template <typename C>
+bool notifyChecked(C *c, long) {
+  c->notify();
+  return true;
+}
+
 class KeysCb : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
     if (roleOfHandle(desc->conn_handle) != kMacRole) return;
     const std::string v = c->getValue();
-    if (v.size() != 8 || !hostLinked()) return;
+    if (v.size() != 8) {
+      statBad++;
+      return;
+    }
+    statRx++;
+    if (!hostLinked()) {
+      statNoHost++;
+      return;
+    }
     input->setValue(reinterpret_cast<const uint8_t *>(v.data()), 8);
-    input->notify();
+    if (notifyChecked(input, 0)) statTxOk++;
+    else statTxFail++;
   }
 };
 
@@ -427,6 +449,8 @@ bool macConnected() {
   portEXIT_CRITICAL(&mux);
   return ok;
 }
+
+KeyStats keyStats() { return {statRx, statTxOk, statTxFail, statNoHost, statBad}; }
 
 const char *lastEvent() { return lastEventText; }
 
