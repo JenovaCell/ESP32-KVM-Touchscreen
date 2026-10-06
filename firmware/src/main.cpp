@@ -218,6 +218,21 @@ static void moveTo(int next) {
 // dir: -1 = left, +1 = right. Stops at the ends (no wrap).
 static void step(int dir) { moveTo(constrain(spatialPos + dir, 0, kSpatialCount - 1)); }
 
+// Screen sleep (KVM-26): the backlight goes off while the Mac is asleep, locked or off.
+// Bluetooth stays up, so switching stays instant.
+static bool screenOn = true;
+static bool macAsleep = false;
+static uint32_t holdUntil = 0;  // touch wake: stay lit until this time even if the Mac sleeps
+static const uint32_t kWakeHoldMs = 30000;
+static const uint32_t kQuietSleepMs = 60000;  // Mac app silent this long: blank too
+
+static void setScreen(bool on) {
+  if (on == screenOn) return;
+  screenOn = on;
+  digitalWrite(KVM_BACKLIGHT_PIN, on ? HIGH : LOW);
+  if (on) showCurrent();
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -267,6 +282,22 @@ void loop() {
   const bool down = readTouch(rawX, rawY);
   const uint32_t now = millis();
 
+  // Screen sleep: follow the Mac. Any key from the Mac, or the app coming back, wakes it.
+  const int sleepCmd = maclink::takeSleepCmd();
+  if (sleepCmd == 1) {
+    macAsleep = true;
+    holdUntil = 0;
+  } else if (sleepCmd == 0) {
+    macAsleep = false;
+  }
+  if (maclink::takeKeyActivity()) macAsleep = false;
+  static bool wasLinked = false;
+  const bool linkedNow = maclink::connected();
+  if (linkedNow && !wasLinked) macAsleep = false;
+  wasLinked = linkedNow;
+  const bool wantSleep = macAsleep || (!linkedNow && maclink::lostForMs() > kQuietSleepMs);
+  setScreen(!wantSleep || now < holdUntil);
+
   // Refresh the key counters at most every 400 ms, and only when they changed.
   static uint32_t lastCounterDraw = 0, lastRx = 0;
   const uint32_t rxNow = kbd::keyStats().rx;
@@ -276,7 +307,11 @@ void loop() {
     drawCounters(kSpatial[spatialPos]);
   }
 
+  static bool ignoreTouch = false;  // the touch that woke the screen is not a tap
   if (down && !wasDown && now - lastRelease > 150) {
+    ignoreTouch = !screenOn;
+    holdUntil = now + kWakeHoldMs;
+    setScreen(true);
     // In landscape the screen's horizontal axis is the panel's native Y axis.
     downScreenX = KVM_TOUCH_FLIP_X ? (tft.width() - 1 - rawY) : rawY;
     downAt = now;
@@ -284,7 +319,9 @@ void loop() {
   if (!down && wasDown) {
     lastRelease = now;
     const uint32_t held = now - downAt;
-    if (held >= 4000) {
+    if (ignoreTouch) {
+      ignoreTouch = false;
+    } else if (held >= 4000) {
       Serial.println("forget host");
       kbd::forgetCurrentHost();
     } else if (held >= 1000) {

@@ -112,6 +112,13 @@ final class DeviceLink {
         send(dir < 0 ? "@S L\n" : "@S R\n")
     }
 
+    /// Tells the board the Mac is asleep, locked or off (true) or back (false): it blanks its screen.
+    func sendSleep(_ asleep: Bool) {
+        guard isReady else { return }
+        log("mac \(asleep ? "asleep/locked" : "awake") -> board screen \(asleep ? "off" : "on")")
+        send(asleep ? "@Z 1\n" : "@Z 0\n")
+    }
+
     /// Sends one media key (HID consumer usage) to the PC; 0 = released.
     func sendConsumer(_ usage: UInt16) {
         guard isReady else { return }

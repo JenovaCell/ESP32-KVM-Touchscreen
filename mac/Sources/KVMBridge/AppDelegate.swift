@@ -60,10 +60,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         autoItem.action = #selector(toggleAutoSwitch)
         autoItem.state = autoSwitch.enabled ? .on : .off
 
+        watchMacSleep()
+
         refreshEvents()
         requestPermissions()
         keys.start()
         ble.start()
+    }
+
+    /// Tells the board when the Mac sleeps, its display sleeps or the screen is locked, and when it is back.
+    private func watchMacSleep() {
+        let ws = NSWorkspace.shared.notificationCenter
+        let asleep: [Notification.Name] = [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification]
+        let awake: [Notification.Name] = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification]
+        for n in asleep { ws.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in self?.ble.sendSleep(true) } }
+        for n in awake { ws.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in self?.ble.sendSleep(false) } }
+        let dc = DistributedNotificationCenter.default()
+        dc.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.ble.sendSleep(true)
+        }
+        dc.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.ble.sendSleep(false)
+        }
     }
 
     private func requestPermissions() {

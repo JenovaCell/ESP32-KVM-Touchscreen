@@ -38,6 +38,9 @@ uint32_t lastHeard = 0;
 bool linked = false;
 volatile bool changedFlag = false;
 int pendingStep = 0;
+int pendingSleep = -1;     // "@Z 1" = 1, "@Z 0" = 0, none = -1
+volatile bool keySeen = false;  // a key report arrived since last asked
+uint32_t linkLostAt = 0;  // when the link last went down (0 = since boot)
 int pendingGoto = -1;  // target number asked for by "@G n", or -1
 uint8_t target = 0;
 
@@ -72,7 +75,11 @@ void handleLine(const char *l) {
     changedFlag = true;
   }
   switch (l[1]) {
+    case 'Z':  // "@Z 1": the Mac is asleep, locked or off. "@Z 0": it is back.
+      if (l[2] == ' ' && (l[3] == '0' || l[3] == '1')) pendingSleep = l[3] - '0';
+      break;
     case 'K': {  // "@K " + 16 hex digits
+      keySeen = true;
       uint8_t report[8];
       if (strlen(l) >= 19 && parseReport(l + 3, report)) {
         const bool ok = kbd::relayReport(report);
@@ -131,11 +138,26 @@ void poll() {
   }
   if (linked && millis() - lastHeard > kLinkTimeoutMs) {
     linked = false;
+    linkLostAt = millis();
     changedFlag = true;
   }
 }
 
 bool connected() { return linked; }
+
+uint32_t lostForMs() { return linked ? 0 : millis() - linkLostAt; }
+
+int takeSleepCmd() {
+  const int s = pendingSleep;
+  pendingSleep = -1;
+  return s;
+}
+
+bool takeKeyActivity() {
+  if (!keySeen) return false;
+  keySeen = false;
+  return true;
+}
 
 bool takeChanged() {
   if (!changedFlag) return false;

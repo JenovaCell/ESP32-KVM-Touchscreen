@@ -9,6 +9,24 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.9.0] - 2026-10-06
+
+Screen sleep when the Mac is asleep, locked or off (KVM-26).
+
+### Added
+- Mac app and board (KVM-26): when the Mac goes to sleep, its display sleeps or the screen is locked,
+  the app tells the board and the board turns its backlight off. When the Mac wakes or unlocks, the
+  backlight comes back. Any key typed through the Mac, or the Mac app starting again, also wakes it.
+  Touching the screen wakes it for 30 seconds (that touch is not treated as a tap, so it cannot switch
+  target by accident). If the Mac app is silent for 60 seconds (Mac shut down, cable unplugged, app
+  quit) the screen goes off too.
+- The Bluetooth links to the work laptop and gaming PC stay up while the screen is off, so switching
+  is as fast as before. Only the backlight is switched off; the board does not deep-sleep.
+- Board: new Mac app command `@Z <1|0>`. **Flash the firmware and replace the Mac app together.**
+
+### Status
+- Unverified on hardware.
+
 ## [0.8.0] - 2026-10-06
 
 Media keys on WORK and GAME (KVM-6).
