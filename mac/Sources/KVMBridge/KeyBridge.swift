@@ -95,8 +95,12 @@ final class KeyBridge {
 
     func setTarget(_ t: Int) {
         let wasSwallowing = swallowing
+        let oldTarget = target
         target = t
-        if wasSwallowing || swallowing { releaseAll() }
+        // The board repeats its target every second (answer to the heartbeat). Only release the
+        // keys when something really changed, or a held key / Ctrl+C is cut off mid-press (KVM-20, KVM-21).
+        let changed = t != oldTarget || wasSwallowing != swallowing
+        if changed && (wasSwallowing || swallowing) { releaseAll() }
     }
 
     /// Release every key on the host (used when switching target or losing the link).

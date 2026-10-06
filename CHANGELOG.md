@@ -9,6 +9,21 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.5.3] - 2026-10-06
+
+Fix for KVM-20 (a held key stops repeating on WORK) and KVM-21 (Ctrl+C, Ctrl+Shift+S fail on WORK).
+
+### Fixed
+- Mac app: once a second the board repeats its current target, and the app treated every
+  repeat as a target change and released all keys on the other computer. That sent an
+  "all keys up" report to the Work PC every second, even while a key or Ctrl was held, which
+  cut off held keys and dropped the Control part of shortcuts. The app now releases keys only
+  when the target or the link state actually changes. Introduced in 0.5.0 (found with the
+  0.5.2 key trace).
+
+### Status
+- Unverified on hardware. Mac app change only; the firmware is unchanged from 0.5.2.
+
 ## [0.5.2] - 2026-10-06
 
 Diagnostic build for KVM-20 (holding a key on WORK repeats inconsistently). **No change to
