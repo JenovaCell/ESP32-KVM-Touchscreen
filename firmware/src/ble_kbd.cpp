@@ -21,7 +21,6 @@ const uint8_t kReportMap[] = {
 
 // Roles: 0 = Work host, 1 = Game host. Stored identity address per role.
 const char *kPeerKey[2] = {"idW", "idG"};
-const uint8_t kSchema = 2;  // bump to wipe all pairings on the next boot
 
 constexpr int kMaxConns = 3;
 
@@ -298,15 +297,7 @@ void begin() {
   NimBLEDevice::init("Desk Keyboard");
   const int listenRc = ble_gap_event_listener_register(&gapListener, onGapEvent, nullptr);
   if (listenRc != 0) Serial.printf("gap listener register failed: %d\n", listenRc);
-  if (prefs.getUChar("schema", 0) < kSchema) {
-    // Earlier versions stored hosts by an address that could be the wrong one.
-    // Start clean: every device has to pair again once.
-    NimBLEDevice::deleteAllBonds();
-    prefs.remove("peerW");
-    prefs.remove("peerG");
-    prefs.remove("peerM");
-    prefs.putUChar("schema", kSchema);
-  }
+  // Pairings are never wiped automatically (KVM-15): a firmware update keeps them.
   // The Mac app used to be a paired Bluetooth device (roles in earlier versions). It now
   // talks over the USB cable, so forget its old pairing and keep the host pairings.
   const String oldMac = prefs.getString("idM", "");

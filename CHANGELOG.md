@@ -9,6 +9,19 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.5.4] - 2026-10-06
+
+Decision KVM-15 (option C): keep the identity-address matching from 0.4.2, remove the pairing wipe.
+
+### Changed
+- Board (KVM-15): the automatic pairing wipe on a schema change is gone. A firmware update
+  never resets pairings. Nothing changes for a board already on 0.4.2 or newer, since its
+  pairings are already in the current format.
+- README: documents what happens to pairings on upgrade and how to pair a device again.
+
+### Status
+- Unverified on hardware. Check that, after flashing, the Work PC still types without pairing again.
+
 ## [0.5.3] - 2026-10-06
 
 Fix for KVM-20 (a held key stops repeating on WORK) and KVM-21 (Ctrl+C, Ctrl+Shift+S fail on WORK).
