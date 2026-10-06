@@ -8,23 +8,39 @@ To get one fixed, create a Bug there and give the issue key (for example `KVM-12
 Paste this into the description and fill it in:
 
 ```
-Firmware version (boot screen):   e.g. v0.4.1 b15
-Mac app version (menu bar menu):  e.g. v0.4.1
-Device firmware shown in menu:    e.g. v0.4.1 b15
+## Versions
+Firmware version (boot screen):    e.g. v0.8.0
+Mac app version (menu bar menu):   e.g. v0.8.0
+Last version that worked (if known):
 
-Target when it happened:          MAC / WORK / GAME
-What I did (steps):
+## Where
+Target when it happened:           MAC / WORK / GAME
+Auto-switch by app on or off:      (if it is about switching)
+
+## Steps to Reproduce
 1.
 2.
 3.
 
-Expected:
-Actual (what the board screen and the Mac menu said, word for word):
+## Expected result
 
-Photo or serial output (optional):
+## Actual result
+(what the board screen and the Mac menu said, word for word)
+
+## How often
+Every time / sometimes (about N in 10) / once
+
+## Evidence (optional but very helpful)
+Photo of the board screen (bottom lines included), and the text from the Mac menu
+"Copy diagnostics" taken right after the problem.
+
+## Severity
+Blocks use / annoying / cosmetic
 ```
 
-Version numbers matter most: they tell us which build to look at.
+Version numbers matter most: they tell us which build to look at. "Steps to Reproduce" is second:
+without it a bug is a guess. The same template is set up as the default description of Bug tickets
+in Jira (see below).
 
 ## What happens next
 
