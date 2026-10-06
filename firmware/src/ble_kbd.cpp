@@ -8,6 +8,7 @@ namespace kbd {
 namespace {
 
 // Keyboard: report ID 1, 8 bytes in (modifiers, reserved, 6 keys), 1 byte LEDs out.
+// Consumer control (media keys): report ID 2, one 16-bit usage (KVM-6).
 const uint8_t kReportMap[] = {
     0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01,
     0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
@@ -17,6 +18,10 @@ const uint8_t kReportMap[] = {
     0x95, 0x01, 0x75, 0x03, 0x91, 0x01,
     0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x65,
     0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00,
+    0xC0,
+    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x02,
+    0x15, 0x00, 0x26, 0xFF, 0x03, 0x19, 0x00, 0x2A, 0xFF, 0x03,
+    0x75, 0x10, 0x95, 0x01, 0x81, 0x00,
     0xC0};
 
 // Roles: 0 = Work host, 1 = Game host. Stored identity address per role.
@@ -36,6 +41,7 @@ struct Conn {
 
 NimBLEServer *server = nullptr;
 NimBLECharacteristic *input = nullptr;
+NimBLECharacteristic *consumer = nullptr;
 Preferences prefs;
 
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -255,11 +261,14 @@ class ServerCb : public NimBLEServerCallbacks {
 
 // Sends one 8-byte HID report to ONE connected host. (characteristic->notify() would send it
 // to every subscribed host, and the other PC must not receive these keys.)
-bool notifyTo(uint16_t handle, const uint8_t *report) {
-  struct os_mbuf *om = ble_hs_mbuf_from_flat(report, 8);
+bool notifyChr(uint16_t handle, NimBLECharacteristic *chr, const uint8_t *data, size_t len) {
+  if (chr == nullptr) return false;
+  struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
   if (om == nullptr) return false;
-  return ble_gatts_notify_custom(handle, input->getHandle(), om) == 0;
+  return ble_gatts_notify_custom(handle, chr->getHandle(), om) == 0;
 }
+
+bool notifyTo(uint16_t handle, const uint8_t *report) { return notifyChr(handle, input, report, 8); }
 
 void sendReport(uint8_t mods, uint8_t key) {
   uint8_t r[8] = {mods, 0, key, 0, 0, 0, 0, 0};
@@ -318,6 +327,7 @@ void begin() {
 
   NimBLEHIDDevice *hid = new NimBLEHIDDevice(server);
   input = hid->inputReport(1);
+  consumer = hid->inputReport(2);
   hid->outputReport(1);
   hid->manufacturer()->setValue("DIY");
   hid->pnp(0x02, 0x303A, 0x4B56, 0x0100);  // Espressif VID, hobby PID
@@ -344,7 +354,9 @@ void setSlot(Slot s) {
     const uint16_t old = activeHandle();
     if (old != kNoConn) {
       static const uint8_t allUp[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+      static const uint8_t noMedia[2] = {0, 0};
       notifyTo(old, allUp);
+      notifyChr(old, consumer, noMedia, 2);
     }
   }
   slot = s;
@@ -380,6 +392,14 @@ bool relayReport(const uint8_t *report) {
   }
   statTxFail++;
   return false;
+}
+
+// One media/consumer usage (0 = released) to the current target's PC only.
+bool relayConsumer(uint16_t usage) {
+  const uint16_t h = activeHandle();
+  if (h == kNoConn) return false;
+  const uint8_t d[2] = {static_cast<uint8_t>(usage & 0xFF), static_cast<uint8_t>(usage >> 8)};
+  return notifyChr(h, consumer, d, 2);
 }
 
 KeyStats keyStats() { return {statRx, statTxOk, statTxFail, statNoHost, statBad}; }

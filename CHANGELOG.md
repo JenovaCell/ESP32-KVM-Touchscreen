@@ -9,6 +9,29 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.8.0] - 2026-10-06
+
+Media keys on WORK and GAME (KVM-6).
+
+### Added
+- Mac app and board (KVM-6): while WORK or GAME is the target, the Mac's volume up/down, mute,
+  play/pause, next/previous track (and fast-forward/rewind) and brightness up/down keys are sent to
+  that PC as media keys instead of acting on the Mac. Function keys without Fn are these media
+  keys on a Mac keyboard; with Fn they are F1-F12 as before. Keys the Mac handles itself
+  (keyboard backlight, Mission Control, Launchpad, Spotlight, dictation) stay on the Mac. Media
+  keys held down when you switch target are released first.
+- Board: a second HID report (consumer control, report ID 2) and a new Mac app command `@C <4 hex>`.
+
+### Upgrade notes
+- **Re-pair the work laptop and the gaming PC once after flashing 0.8.0.** The keyboard's description
+  changed (it now has media keys) and Windows keeps the old description until the device is removed
+  and paired again: remove "Desk Keyboard" in Windows Bluetooth settings, hold the screen for 4 seconds
+  on that target's screen (forget host), then pair again.
+- Flash the firmware and replace the Mac app together.
+
+### Status
+- Unverified on hardware.
+
 ## [0.7.0] - 2026-10-06
 
 Auto-switch the target from the frontmost Mac app (KVM-24).

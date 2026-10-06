@@ -5,6 +5,7 @@
 //
 //   Mac to board:  @H            heartbeat, about once a second (the board answers with @T and @V)
 //                  @K <16 hex>   one 8-byte keyboard report, e.g. @K 0200040000000000
+//                  @C <4 hex>    one media key (HID consumer usage), 0000 = released
 //                  @S L | @S R   step the target left (toward GAME) or right (toward WORK)
 //                  @G <0|1|2>    go straight to a target: 0 = Mac, 1 = Work, 2 = Game
 //   Board to Mac:  @T <0|1|2>    active target: 0 = Mac, 1 = Work, 2 = Game

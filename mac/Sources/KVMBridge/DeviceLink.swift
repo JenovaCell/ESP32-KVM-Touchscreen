@@ -112,6 +112,13 @@ final class DeviceLink {
         send(dir < 0 ? "@S L\n" : "@S R\n")
     }
 
+    /// Sends one media key (HID consumer usage) to the PC; 0 = released.
+    func sendConsumer(_ usage: UInt16) {
+        guard isReady else { return }
+        trace(String(format: "media  %04x", usage))
+        send(String(format: "@C %04x\n", usage))
+    }
+
     /// Asks the board to go straight to a target: 0 = Mac, 1 = Work, 2 = Game.
     func sendGoto(_ target: Int) {
         guard isReady, (0...2).contains(target) else { return }

@@ -48,6 +48,10 @@ bool takeChanged();
 // Returns false if no host is connected or the send failed.
 bool relayReport(const uint8_t *report);
 
+// Sends one media key usage (HID consumer page, for example 0xCD play/pause, 0xE9 volume up;
+// 0 = released) to the connected host. Returns false if no host is connected.
+bool relayConsumer(uint16_t usage);
+
 // Types letters, digits, spaces and newlines. Other characters are skipped.
 void typeText(const char *text);
 

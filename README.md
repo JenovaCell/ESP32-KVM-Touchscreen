@@ -98,7 +98,9 @@ If something looks wrong:
 4. (Optional) Switch "Auto-switch by app" on in the Mac menu: Elgato Studio in front selects WORK,
    Moonlight selects GAME, any other app selects MAC. It acts only when the frontmost app
    changes, so a manual switch stays until you change app.
-5. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
+5. On WORK or GAME the Mac's volume, mute, play/pause, track and brightness keys control that PC.
+   (After flashing 0.8.0, re-pair the PC once; see the CHANGELOG.)
+6. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
    Left Command (toward GAME) or Right Command (toward WORK) on the Mac. The work laptop and
    gaming PC stay connected to the board on every screen, so switching does not wait for a
    reconnect; only the PC of the current target receives keys. New devices can only be paired

@@ -81,6 +81,15 @@ void handleLine(const char *l) {
       }
       break;
     }
+    case 'C': {  // "@C " + 4 hex digits: one media key usage, 0000 = released
+      if (strlen(l) >= 7) {
+        char buf[5] = {l[3], l[4], l[5], l[6], 0};
+        bool ok = true;
+        for (int i = 0; i < 4; i++) ok = ok && isxdigit(static_cast<unsigned char>(buf[i]));
+        if (ok) kbd::relayConsumer(static_cast<uint16_t>(strtoul(buf, nullptr, 16)));
+      }
+      break;
+    }
     case 'S':
       if (l[3] == 'L') pendingStep = -1;
       else if (l[3] == 'R') pendingStep = +1;

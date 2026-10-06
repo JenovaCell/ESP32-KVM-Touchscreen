@@ -43,7 +43,8 @@ final class KeyBridge {
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue)
+            (1 << CGEventType.flagsChanged.rawValue) |
+            (1 << 14)  // system-defined events: volume, brightness, play/pause and the other function keys
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
@@ -82,6 +83,7 @@ final class KeyBridge {
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
             return Unmanaged.passUnretained(event)
         }
+        if type.rawValue == 14 { return handleSystem(event) }
         let code = Int(event.getIntegerValueField(.keyboardEventKeycode))
         switch type {
         case .flagsChanged: return handleFlags(code: code, event: event)
@@ -89,6 +91,42 @@ final class KeyBridge {
         case .keyUp: return handleKey(code: code, down: false, event: event)
         default: return Unmanaged.passUnretained(event)
         }
+    }
+
+    // MARK: Media keys (KVM-6)
+
+    /// Mac media key number (NX_KEYTYPE_*) to HID consumer usage.
+    private static let consumerUsage: [Int: UInt16] = [
+        0: 0xE9,   // volume up
+        1: 0xEA,   // volume down
+        2: 0x6F,   // brightness up
+        3: 0x70,   // brightness down
+        7: 0xE2,   // mute
+        16: 0xCD,  // play / pause
+        17: 0xB5,  // next track
+        18: 0xB6,  // previous track
+        19: 0xB5,  // fast forward = next track
+        20: 0xB6,  // rewind = previous track
+    ]
+    private var consumerDown: UInt16 = 0
+
+    private func handleSystem(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let pass = Unmanaged.passUnretained(event)
+        guard swallowing, let ns = NSEvent(cgEvent: event), ns.subtype.rawValue == 8 else { return pass }
+        let keyType = (ns.data1 & 0xFFFF0000) >> 16
+        let flags = ns.data1 & 0x0000FFFF
+        let isDown = ((flags & 0xFF00) >> 8) == 0xA
+        guard let usage = Self.consumerUsage[keyType] else { return pass }  // e.g. keyboard backlight: stays on the Mac
+        if isDown {
+            if consumerDown != usage {
+                consumerDown = usage
+                ble.sendConsumer(usage)
+            }
+        } else if consumerDown == usage {
+            consumerDown = 0
+            ble.sendConsumer(0)
+        }
+        return nil
     }
 
     // MARK: Target changes
@@ -105,6 +143,10 @@ final class KeyBridge {
 
     /// Release every key on the host (used when switching target or losing the link).
     func releaseAll() {
+        if consumerDown != 0 {
+            consumerDown = 0
+            ble.sendConsumer(0)
+        }
         pressed.removeAll()
         mods = 0
         for s in 0..<2 {
