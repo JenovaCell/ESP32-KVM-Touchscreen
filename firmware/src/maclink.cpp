@@ -17,8 +17,12 @@
 #error "ARDUINO_USB_MODE=1 is required (platformio.ini) for the USB link to the Mac app."
 #endif
 
-// The USB-C cable. (Serial itself is the board's UART0, used only for debug text.)
-#define LINK HWCDCSerial
+// The USB-C cable. (Normally Serial is the board's UART0, used only for debug text.)
+#if ARDUINO_USB_CDC_ON_BOOT
+#define LINK Serial
+#else
+#define LINK USBSerial  // declared by the core when USB mode is on and Serial is not the USB port
+#endif
 
 namespace maclink {
 namespace {
