@@ -9,15 +9,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let targetNames = ["MAC", "WORK", "GAME"]
     private var target = 0
+    private let appVersion =
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "dev"
+    private let versionItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let deviceVersionItem = NSMenuItem(title: "Device firmware: not connected", action: nil, keyEquivalent: "")
     private let bleItem = NSMenuItem(title: "Bluetooth: starting…", action: nil, keyEquivalent: "")
     private let permItem = NSMenuItem(title: "Keyboard access: waiting", action: nil, keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        versionItem.title = "KVMBridge v\(appVersion)"
         buildMenu()
         refreshTitle()
 
         ble.onStatus = { [weak self] s in
             self?.bleItem.title = "Bluetooth: \(s)"
+        }
+        ble.onDeviceVersion = { [weak self] v in
+            self?.deviceVersionItem.title = "Device firmware: v\(v)"
         }
         ble.onTarget = { [weak self] t in
             self?.target = t
@@ -52,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildMenu() {
         let menu = NSMenu()
+        menu.addItem(versionItem)
+        menu.addItem(deviceVersionItem)
+        menu.addItem(.separator())
         menu.addItem(bleItem)
         menu.addItem(permItem)
         menu.addItem(.separator())

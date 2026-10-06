@@ -27,11 +27,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Check VERSION matches CHANGELOG
+        run: ./scripts/check_version.sh
       - run: pip install platformio
       - name: Compile (pins may be unset)
         working-directory: firmware
         env:
           PLATFORMIO_BUILD_FLAGS: -DKVM_CI_COMPILE_ONLY=1
+          KVM_BUILD: ${{ github.run_number }}
         run: pio run
 
   # Manual: Actions tab -> build -> Run workflow. Needs the real pins in platformio.ini.
@@ -47,8 +50,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install platformio
+      - name: Check VERSION matches CHANGELOG
+        run: ./scripts/check_version.sh
       - name: Build
         working-directory: firmware
+        env:
+          KVM_BUILD: ${{ github.run_number }}
         run: pio run
       - name: Merge into one image (flash at 0x0)
         working-directory: firmware
@@ -80,11 +87,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "fw-${{ github.run_number }}" \
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          ./scripts/release_notes.sh > notes.md
+          printf '\nBuild %s, commit %s.\nFlash `kvm-merged.bin` at `0x0`. The Mac app is `KVMBridge.zip`.\n' \
+            "${{ github.run_number }}" "${{ github.sha }}" >> notes.md
+          gh release create "v${VERSION}-b${{ github.run_number }}" \
             firmware/.pio/build/cyd28/kvm-merged.bin \
             firmware/.pio/build/cyd28/firmware.bin \
             $(ls macapp/KVMBridge.zip 2>/dev/null) \
             --repo "${{ github.repository }}" \
-            --title "Firmware build ${{ github.run_number }}" \
-            --notes "Commit ${{ github.sha }}. Flash kvm-merged.bin at 0x0." \
+            --title "v${VERSION} (build ${{ github.run_number }})" \
+            --notes-file notes.md \
             --latest

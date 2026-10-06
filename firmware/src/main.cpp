@@ -19,6 +19,16 @@
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
 #endif
 
+#ifndef KVM_VERSION
+#define KVM_VERSION "dev"
+#endif
+#ifndef KVM_BUILD
+#define KVM_BUILD "dev"
+#endif
+#ifndef KVM_SHA
+#define KVM_SHA "unknown"
+#endif
+
 #ifndef KVM_TOUCH_FLIP_X
 #define KVM_TOUCH_FLIP_X 0  // set to 1 if left/right taps feel reversed
 #endif
@@ -89,6 +99,16 @@ static void drawTarget(Target t) {
   if (t == Target::Mac) status = kbd::macConnected() ? "Mac app connected" : "waiting for Mac app";
   else status = kbd::connected() ? "connected" : "waiting for host";
   tft.drawString(status, cx, tft.height() - 28, 2);
+}
+
+static void drawSplash() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(1);
+  tft.drawString("KVM", tft.width() / 2, tft.height() / 2 - 30, 4);
+  tft.drawString("v" KVM_VERSION, tft.width() / 2, tft.height() / 2 + 5, 4);
+  tft.drawString(KVM_BUILD " " KVM_SHA, tft.width() / 2, tft.height() / 2 + 40, 2);
 }
 
 static void drawPasskey(uint32_t code) {
@@ -180,12 +200,17 @@ void setup() {
   tft.invertDisplay(KVM_INVERT_DISPLAY);
   tft.setRotation(1);  // landscape; change to 0/2/3 if it is the wrong way up
 
+  drawSplash();
+  Serial.println("KVM v" KVM_VERSION " (" KVM_BUILD " " KVM_SHA ")");
+  const uint32_t splashStart = millis();
+
   touchInit();
 
   prefs.begin("kvm", false);
   const uint8_t saved = prefs.getUChar("target", static_cast<uint8_t>(Target::Mac));
   if (saved < kSpatialCount) spatialPos = posOf(static_cast<Target>(saved));
   kbd::begin();
+  while (millis() - splashStart < 1200) delay(10);  // keep the splash readable
   kbd::setSlot(slotFor(kSpatial[spatialPos]));
   kbd::publishTarget(static_cast<uint8_t>(kSpatial[spatialPos]));
   showCurrent();

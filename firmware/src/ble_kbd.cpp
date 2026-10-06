@@ -25,6 +25,15 @@ const char *kKeysUuid = "7d1b0002-5a3c-4f8e-9c1d-4b6a2e0f1a01";   // write: 8-by
 const char *kCmdUuid = "7d1b0003-5a3c-4f8e-9c1d-4b6a2e0f1a01";    // write: 1 = step left, 2 = step right
 const char *kStateUuid = "7d1b0004-5a3c-4f8e-9c1d-4b6a2e0f1a01";  // read/notify: active target
 
+#ifndef KVM_VERSION
+#define KVM_VERSION "dev"
+#endif
+#ifndef KVM_BUILD
+#define KVM_BUILD "dev"
+#endif
+
+const char *kVerUuid = "7d1b0005-5a3c-4f8e-9c1d-4b6a2e0f1a01";    // read: firmware version text
+
 // Roles: 0 = Work host, 1 = Game host, 2 = Mac app. Stored address per role.
 const char *kPeerKey[3] = {"peerW", "peerG", "peerM"};
 const int kMacRole = 2;
@@ -243,6 +252,9 @@ void begin() {
                       NIMBLE_PROPERTY::NOTIFY);
   const uint8_t zero = 0;
   stateChr->setValue(&zero, 1);
+  NimBLECharacteristic *ver = ctl->createCharacteristic(
+      kVerUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN);
+  ver->setValue(std::string(KVM_VERSION " " KVM_BUILD));
   ctl->start();
 
   // Advertising data: keyboard appearance, HID service and name. The control

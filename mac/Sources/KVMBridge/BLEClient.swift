@@ -8,12 +8,15 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
     static let keysUUID = CBUUID(string: "7D1B0002-5A3C-4F8E-9C1D-4B6A2E0F1A01")
     static let cmdUUID = CBUUID(string: "7D1B0003-5A3C-4F8E-9C1D-4B6A2E0F1A01")
     static let stateUUID = CBUUID(string: "7D1B0004-5A3C-4F8E-9C1D-4B6A2E0F1A01")
+    static let versionUUID = CBUUID(string: "7D1B0005-5A3C-4F8E-9C1D-4B6A2E0F1A01")
     static let deviceName = "Desk Keyboard"
 
     /// 0 = Mac, 1 = Work, 2 = Game. Called whenever the device reports its target.
     var onTarget: ((Int) -> Void)?
     /// Human-readable connection status, for the menu.
     var onStatus: ((String) -> Void)?
+    /// Firmware version text reported by the device (older firmware does not report one).
+    var onDeviceVersion: ((String) -> Void)?
     /// Called when readiness changes (true once paired, subscribed and the target is known).
     var onReady: ((Bool) -> Void)?
 
@@ -26,6 +29,7 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
     private var keysChar: CBCharacteristic?
     private var cmdChar: CBCharacteristic?
     private var stateChar: CBCharacteristic?
+    private var versionChar: CBCharacteristic?
     private let savedIDKey = "devicePeripheralID"
 
     func start() {
@@ -108,6 +112,7 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
         keysChar = nil
         cmdChar = nil
         stateChar = nil
+        versionChar = nil
         status(reason)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.beginScan() }
     }
@@ -121,7 +126,7 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
             central.cancelPeripheralConnection(p)
             return
         }
-        p.discoverCharacteristics([Self.keysUUID, Self.cmdUUID, Self.stateUUID], for: svc)
+        p.discoverCharacteristics([Self.keysUUID, Self.cmdUUID, Self.stateUUID, Self.versionUUID], for: svc)
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
@@ -130,6 +135,7 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
             case Self.keysUUID: keysChar = c
             case Self.cmdUUID: cmdChar = c
             case Self.stateUUID: stateChar = c
+            case Self.versionUUID: versionChar = c
             default: break
             }
         }
@@ -149,9 +155,15 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
             status("Waiting for pairing (\(error.localizedDescription))")
             return
         }
+        if c.uuid == Self.versionUUID {
+            if let data = c.value, let text = String(data: data, encoding: .utf8) { onDeviceVersion?(text) }
+            return
+        }
         guard c.uuid == Self.stateUUID, let byte = c.value?.first else { return }
+        let firstTime = !isReady
         isReady = true
         status("Connected")
         onTarget?(Int(byte))
+        if firstTime, let v = versionChar { p.readValue(for: v) }
     }
 }

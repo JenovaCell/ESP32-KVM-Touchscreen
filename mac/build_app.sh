@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+VERSION=$(tr -d '[:space:]' < ../VERSION)
 swift build -c release
 
 APP=build/KVMBridge.app
@@ -19,7 +20,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>io.github.jenovacell.kvmbridge</string>
   <key>CFBundleExecutable</key><string>KVMBridge</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
   <key>NSBluetoothAlwaysUsageDescription</key>

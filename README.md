@@ -13,7 +13,17 @@ Target board: Freenove ESP32-S3 CYD 2.8" 240x320 capacitive touch.
 |-------|-------|--------|
 | 1 | Display: MAC / WORK / GAME indicator | working on the board |
 | 2 | Controls: touch to switch, saved state | built, awaiting test on the board |
-| 3 | Software: BLE HID to work laptop, Mac menu-bar app, double-tap Command | not started |
+| 3 | Software: BLE keyboard to work laptop / gaming PC, Mac menu-bar app, double-tap Command | built (0.4.x); keyboard pairing verified, Mac link awaiting test |
+
+## Versions
+
+The version lives in the `VERSION` file (x.y.z) and every change is recorded in
+`CHANGELOG.md`. The version shows on the device's boot screen and serial output, in the Mac
+app's menu (along with the device firmware version it is talking to), and in the release name
+(`v0.4.1 (build 14)`). The build number is the CI run number; local builds show `dev`.
+
+To release a change: edit `VERSION`, add a matching entry at the top of `CHANGELOG.md`, and
+push. CI fails if the two disagree. Releases use the changelog entry as their notes.
 
 ## Flash and check
 
