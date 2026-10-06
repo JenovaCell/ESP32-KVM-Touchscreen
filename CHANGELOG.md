@@ -14,9 +14,9 @@ been tried on the board yet.
 Decision KVM-15 (option C): keep the identity-address matching from 0.4.2, remove the pairing wipe.
 
 ### Changed
-- Board (KVM-15): the automatic pairing wipe on a schema change is gone. A firmware update
-  never resets pairings. Nothing changes for a board already on 0.4.2 or newer, since its
-  pairings are already in the current format.
+- Board (KVM-15): the automatic pairing wipe on a schema change is gone, so the firmware no
+  longer wipes pairings by itself. In testing the work laptop still had to be paired once after
+  an app-only flash of this version; the cause is under investigation (KVM-22).
 - README: documents what happens to pairings on upgrade and how to pair a device again.
 
 ### Status
