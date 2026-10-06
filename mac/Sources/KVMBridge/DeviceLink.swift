@@ -112,6 +112,12 @@ final class DeviceLink {
         send(dir < 0 ? "@S L\n" : "@S R\n")
     }
 
+    /// Asks the board to go straight to a target: 0 = Mac, 1 = Work, 2 = Game.
+    func sendGoto(_ target: Int) {
+        guard isReady, (0...2).contains(target) else { return }
+        send("@G \(target)\n")
+    }
+
     private func transmit(_ report: Data, force: Bool) {
         if !force && report == lastSent { return }  // auto-repeat events add nothing new
         lastSent = report

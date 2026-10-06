@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let ble = DeviceLink()
     private lazy var keys = KeyBridge(ble: ble)
+    private lazy var autoSwitch = AutoSwitch(ble: ble)
+    private let autoItem = NSMenuItem(
+        title: "Auto-switch by app (Elgato Studio: Work, Moonlight: Game)",
+        action: nil, keyEquivalent: "")
 
     private let targetNames = ["MAC", "WORK", "GAME"]
     private var target = 0
@@ -52,6 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                       : "Keyboard access: grant Accessibility + Input Monitoring"
         }
 
+        autoItem.target = self
+        autoItem.action = #selector(toggleAutoSwitch)
+        autoItem.state = autoSwitch.enabled ? .on : .off
+
         refreshEvents()
         requestPermissions()
         keys.start()
@@ -77,6 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let copy = NSMenuItem(title: "Copy diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
         copy.target = self
         menu.addItem(copy)
+        menu.addItem(.separator())
+        menu.addItem(autoItem)
         menu.addItem(.separator())
         let hint = NSMenuItem(title: "Double-tap Left Cmd: toward GAME", action: nil, keyEquivalent: "")
         let hint2 = NSMenuItem(title: "Double-tap Right Cmd: toward WORK", action: nil, keyEquivalent: "")
@@ -105,6 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Puts the full event history on the clipboard so it can be pasted into a ticket.
+    @objc private func toggleAutoSwitch() {
+        autoSwitch.setEnabled(!autoSwitch.enabled)
+        autoItem.state = autoSwitch.enabled ? .on : .off
+    }
+
     @objc private func copyDiagnostics() {
         var lines = [
             "KVMBridge v\(appVersion)",

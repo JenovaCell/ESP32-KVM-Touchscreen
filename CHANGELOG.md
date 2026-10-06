@@ -9,6 +9,24 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.7.0] - 2026-10-06
+
+Auto-switch the target from the frontmost Mac app (KVM-24).
+
+### Added
+- Mac app (KVM-24): menu item "Auto-switch by app". When on, the frontmost application picks the
+  target: an app named "Elgato Studio" gives WORK, "Moonlight" gives GAME, every other app gives
+  MAC. It only acts when the frontmost app changes, so a manual switch (touch or double-tap
+  Command) stays until you move to another app. Off until you switch it on; the choice is
+  remembered. Apps are matched by name (case ignored); the names are at the top of
+  `AutoSwitch.swift`.
+- Board (KVM-24): new Mac app command `@G <0|1|2>` goes straight to a target. **Flash the firmware
+  and replace the Mac app together.** Older firmware ignores the command (the menu item then does
+  nothing).
+
+### Status
+- Unverified on hardware. Open check: the exact app name of "Elgato Studio" on this Mac.
+
 ## [0.6.0] - 2026-10-06
 
 Faster switching (KVM-23, option A): both PCs stay connected, the target only chooses who gets keys.

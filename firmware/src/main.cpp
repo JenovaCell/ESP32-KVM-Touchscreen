@@ -203,9 +203,8 @@ static kbd::Slot slotFor(Target t) {
   }
 }
 
-// dir: -1 = left, +1 = right. Stops at the ends (no wrap).
-static void step(int dir) {
-  const int next = constrain(spatialPos + dir, 0, kSpatialCount - 1);
+// Move to position `next` in kSpatial (does nothing if already there).
+static void moveTo(int next) {
   if (next == spatialPos) return;
   spatialPos = next;
   const Target t = kSpatial[spatialPos];
@@ -215,6 +214,9 @@ static void step(int dir) {
   prefs.putUChar("target", static_cast<uint8_t>(t));
   Serial.println(kStyles[static_cast<int>(t)].label);
 }
+
+// dir: -1 = left, +1 = right. Stops at the ends (no wrap).
+static void step(int dir) { moveTo(constrain(spatialPos + dir, 0, kSpatialCount - 1)); }
 
 void setup() {
   Serial.begin(115200);
@@ -258,6 +260,8 @@ void loop() {
   if (kbd::takeChanged() | maclink::takeChanged()) showCurrent();  // also ends the pairing overlay
   int macStep;
   if (maclink::takeStep(macStep)) step(macStep);
+  uint8_t macGoto;
+  if (maclink::takeGoto(macGoto) && macGoto < kSpatialCount) moveTo(posOf(static_cast<Target>(macGoto)));
 
   int rawX, rawY;
   const bool down = readTouch(rawX, rawY);

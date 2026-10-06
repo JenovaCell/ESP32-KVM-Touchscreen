@@ -95,7 +95,10 @@ If something looks wrong:
    charge).
 3. Pair the work laptop with "Desk Keyboard" while the board is on the WORK screen (type the
    code from the board's screen). Pair the gaming PC the same way on the GAME screen.
-4. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
+4. (Optional) Switch "Auto-switch by app" on in the Mac menu: Elgato Studio in front selects WORK,
+   Moonlight selects GAME, any other app selects MAC. It acts only when the frontmost app
+   changes, so a manual switch stays until you change app.
+5. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
    Left Command (toward GAME) or Right Command (toward WORK) on the Mac. The work laptop and
    gaming PC stay connected to the board on every screen, so switching does not wait for a
    reconnect; only the PC of the current target receives keys. New devices can only be paired

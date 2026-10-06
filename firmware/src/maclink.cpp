@@ -38,6 +38,7 @@ uint32_t lastHeard = 0;
 bool linked = false;
 volatile bool changedFlag = false;
 int pendingStep = 0;
+int pendingGoto = -1;  // target number asked for by "@G n", or -1
 uint8_t target = 0;
 
 int hexValue(char c) {
@@ -83,6 +84,9 @@ void handleLine(const char *l) {
     case 'S':
       if (l[3] == 'L') pendingStep = -1;
       else if (l[3] == 'R') pendingStep = +1;
+      break;
+    case 'G':  // "@G n": go straight to target n (0 Mac, 1 Work, 2 Game)
+      if (l[2] == ' ' && l[3] >= '0' && l[3] <= '2') pendingGoto = l[3] - '0';
       break;
     case 'H':
       sendState();
@@ -135,6 +139,13 @@ bool takeStep(int &dir) {
   if (s == 0) return false;
   pendingStep = 0;
   dir = s;
+  return true;
+}
+
+bool takeGoto(uint8_t &t) {
+  if (pendingGoto < 0) return false;
+  t = static_cast<uint8_t>(pendingGoto);
+  pendingGoto = -1;
   return true;
 }
 
