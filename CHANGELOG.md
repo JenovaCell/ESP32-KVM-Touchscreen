@@ -36,6 +36,10 @@ behind KVM-13. Replace the firmware and the Mac app together.
   pairings are kept.
 - The Bluetooth write queue and flow control in the Mac app (not needed on a wired link).
 
+### Notes
+- The board's normal debug text (`Serial`) stays on its UART pins. The USB link uses the chip's
+  built-in USB Serial/JTAG port directly, so debug text never mixes with Mac messages.
+
 ### Upgrade notes
 - The board must be plugged into the Mac to use the Mac keyboard.
 - Flash `kvm-merged.bin`, replace the Mac app, and check the menu says "Connected (USB)".

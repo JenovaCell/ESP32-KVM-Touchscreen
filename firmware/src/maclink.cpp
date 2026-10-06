@@ -2,6 +2,8 @@
 
 #include "ble_kbd.h"
 
+#include "HWCDC.h"
+
 #ifndef KVM_VERSION
 #define KVM_VERSION "dev"
 #endif
@@ -9,10 +11,14 @@
 #define KVM_BUILD "dev"
 #endif
 
-// The Mac link needs the USB serial port to be the main Serial. Fail the build, not the user.
-#if !ARDUINO_USB_CDC_ON_BOOT
-#error "Set ARDUINO_USB_CDC_ON_BOOT=1 in platformio.ini so Serial is the USB port."
+// The Mac link uses the chip's built-in USB Serial/JTAG port directly, so the normal Serial
+// (debug text) stays separate. Fail the build, not the user, if it is not available.
+#if !ARDUINO_USB_MODE
+#error "ARDUINO_USB_MODE=1 is required (platformio.ini) for the USB link to the Mac app."
 #endif
+
+// The USB-C cable. (Serial itself is the board's UART0, used only for debug text.)
+#define LINK HWCDCSerial
 
 namespace maclink {
 namespace {
@@ -49,8 +55,8 @@ bool parseReport(const char *hex, uint8_t out[8]) {
 }
 
 void sendState() {
-  Serial.printf("@T %u\n", target);
-  Serial.printf("@V %s %s\n", KVM_VERSION, KVM_BUILD);
+  LINK.printf("@T %u\n", static_cast<unsigned>(target));
+  LINK.printf("@V %s %s\n", KVM_VERSION, KVM_BUILD);
 }
 
 void handleLine(const char *l) {
@@ -81,13 +87,14 @@ void handleLine(const char *l) {
 }  // namespace
 
 void begin() {
-  // HWCDC: never block the main loop if the Mac is not reading the port.
-  Serial.setTxTimeoutMs(0);
+  LINK.begin();
+  // Never block the main loop if the Mac is not reading the port.
+  LINK.setTxTimeoutMs(0);
 }
 
 void poll() {
-  while (Serial.available() > 0) {
-    const int c = Serial.read();
+  while (LINK.available() > 0) {
+    const int c = LINK.read();
     if (c < 0) break;
     if (c == '\n') {
       if (!overflow && len > 0) {
@@ -125,7 +132,7 @@ bool takeStep(int &dir) {
 
 void publishTarget(uint8_t t) {
   target = t;
-  Serial.printf("@T %u\n", t);
+  LINK.printf("@T %u\n", static_cast<unsigned>(t));
 }
 
 }  // namespace maclink
