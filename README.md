@@ -25,6 +25,22 @@ app's menu (along with the device firmware version it is talking to), and in the
 To release a change: edit `VERSION`, add a matching entry at the top of `CHANGELOG.md`, and
 push. CI fails if the two disagree. Releases use the changelog entry as their notes.
 
+## Reading the diagnostics
+
+**On the board** (small text at the bottom of every screen): the previous event, then the
+latest event with `| paired: N`. Each event starts with seconds since boot. Examples:
+`paired: Mac app`, `host connected`, `link up, not yet encrypted`, `app subscribed to state`
+(the Mac app is really using the link), `refused: unknown device`, `refused: not this target`,
+`dropped: remote ended (0x13)` (the other side hung up), `dropped: link timeout (0x08)` (the
+radio link was lost), `encryption failed (n)`, `repeat pairing: bond replaced`.
+
+**In the Mac app menu:** "Recent events" lists the latest Bluetooth steps and errors.
+"Copy diagnostics" copies everything (versions, status lines, full event list) to the
+clipboard; paste it into the Jira ticket. If keyboard access says "waiting" even though
+KVMBridge is switched on in Privacy & Security, run
+`tccutil reset All io.github.jenovacell.kvmbridge`, reopen the app and grant the prompts
+again (see KVM-10).
+
 ## Bugs and backlog
 
 Tracked in the KVM Jira project. See `docs/BUG_REPORTS.md` for what to include in a bug and

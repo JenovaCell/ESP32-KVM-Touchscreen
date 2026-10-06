@@ -28,6 +28,7 @@ bool macConnected();
 // Short text for the screen: what happened to the last connection, and how many
 // devices are paired with the board.
 const char *lastEvent();
+const char *prevEvent();  // the event before that
 int bondCount();
 
 // True once per pairing attempt; `passkey` is the 6-digit code to show on screen.

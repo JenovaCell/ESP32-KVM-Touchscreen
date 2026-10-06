@@ -9,6 +9,28 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.4.3] - 2026-10-06
+
+Diagnostic build for KVM-13 (Mac app pairs, then the link drops). **No change to pairing or
+keystroke behaviour.** It only makes failures readable. Also extends KVM-14.
+
+### Added
+- Board (KVM-13, KVM-14): the two bottom lines on every screen now show the previous and the
+  latest Bluetooth event, each stamped with seconds since boot, plus `paired: N`. A dropped
+  link now says why, using the Bluetooth reason code (`dropped: remote ended (0x13)`,
+  `dropped: link timeout (0x08)`, ...). New events: `link up, not yet encrypted`,
+  `app subscribed to state` (the Mac app really used the control service),
+  `encryption failed (n)`, `repeat pairing: bond replaced`.
+- Mac app (KVM-13): the menu shows the real Bluetooth error and keeps showing the last problem
+  while it retries ("Connecting... (last: ...)") instead of only "Connecting...".
+- Mac app (KVM-13): "Recent events" submenu with the latest Bluetooth steps, and a
+  "Copy diagnostics" item that copies the full history (versions, status lines, events) to the
+  clipboard for pasting into a ticket.
+- Mac app (KVM-13): if the device does not accept a connection within 15 s, the menu says so.
+
+### Status
+- Unverified on hardware. Does not fix KVM-13; it is meant to show its cause.
+
 ## [0.4.2] - 2026-10-06
 
 ### Fixed

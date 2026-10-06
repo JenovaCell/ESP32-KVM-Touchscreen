@@ -15,12 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let deviceVersionItem = NSMenuItem(title: "Device firmware: not connected", action: nil, keyEquivalent: "")
     private let bleItem = NSMenuItem(title: "Bluetooth: starting…", action: nil, keyEquivalent: "")
     private let permItem = NSMenuItem(title: "Keyboard access: waiting", action: nil, keyEquivalent: "")
+    private let eventsItem = NSMenuItem(title: "Recent events", action: nil, keyEquivalent: "")
+    private let eventsMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         versionItem.title = "KVMBridge v\(appVersion)"
         buildMenu()
         refreshTitle()
 
+        ble.onLog = { [weak self] in self?.refreshEvents() }
         ble.onStatus = { [weak self] s in
             self?.bleItem.title = "Bluetooth: \(s)"
         }
@@ -43,10 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.refreshTitle()
         }
         keys.onTapStatus = { [weak self] ok in
+            self?.ble.log("keyboard access: \(ok ? "granted" : "waiting")")
             self?.permItem.title = ok ? "Keyboard access: granted"
                                       : "Keyboard access: grant Accessibility + Input Monitoring"
         }
 
+        refreshEvents()
         requestPermissions()
         keys.start()
         ble.start()
@@ -65,6 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(bleItem)
         menu.addItem(permItem)
+        eventsItem.submenu = eventsMenu
+        menu.addItem(eventsItem)
+        let copy = NSMenuItem(title: "Copy diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
+        copy.target = self
+        menu.addItem(copy)
         menu.addItem(.separator())
         let hint = NSMenuItem(title: "Double-tap Left Cmd: toward GAME", action: nil, keyEquivalent: "")
         let hint2 = NSMenuItem(title: "Double-tap Right Cmd: toward WORK", action: nil, keyEquivalent: "")
@@ -73,6 +83,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
+
+    /// Shows the newest Bluetooth events in the "Recent events" submenu.
+    private func refreshEvents() {
+        eventsMenu.removeAllItems()
+        let recent = ble.events.suffix(12).reversed()
+        if recent.isEmpty {
+            eventsMenu.addItem(NSMenuItem(title: "(none yet)", action: nil, keyEquivalent: ""))
+            return
+        }
+        for line in recent { eventsMenu.addItem(NSMenuItem(title: line, action: nil, keyEquivalent: "")) }
+    }
+
+    /// Puts the full event history on the clipboard so it can be pasted into a ticket.
+    @objc private func copyDiagnostics() {
+        var lines = [
+            "KVMBridge v\(appVersion)",
+            deviceVersionItem.title,
+            bleItem.title,
+            permItem.title,
+            "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "",
+        ]
+        lines.append(contentsOf: ble.events)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     private func refreshTitle() {

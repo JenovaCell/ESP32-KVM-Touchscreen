@@ -98,10 +98,13 @@ static void drawTarget(Target t) {
   const char *status;
   if (t == Target::Mac) status = kbd::macConnected() ? "Mac app connected" : "waiting for Mac app";
   else status = kbd::connected() ? "connected" : "waiting for host";
-  tft.drawString(status, cx, tft.height() - 28, 2);
-  char diag[56];
-  snprintf(diag, sizeof(diag), "%s | paired: %d", kbd::lastEvent(), kbd::bondCount());
-  tft.drawString(diag, cx, tft.height() - 10, 1);
+  tft.drawString(status, cx, tft.height() - 36, 2);
+  // Diagnostics: the previous and the latest Bluetooth event, centred on the screen.
+  char diag[64];
+  snprintf(diag, sizeof(diag), "%.50s", kbd::prevEvent());
+  tft.drawString(diag, tft.width() / 2, tft.height() - 20, 1);
+  snprintf(diag, sizeof(diag), "%.38s | paired: %d", kbd::lastEvent(), kbd::bondCount());
+  tft.drawString(diag, tft.width() / 2, tft.height() - 10, 1);
 }
 
 static void drawSplash() {

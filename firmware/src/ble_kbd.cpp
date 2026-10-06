@@ -59,9 +59,16 @@ Preferences prefs;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 Conn conns[kMaxConns];
 
-char lastEventText[40] = "none yet";
+char lastEventText[48] = "none yet";
+char prevEventText[48] = "";
+char pendingReason[40] = "";
+volatile bool pendingReasonValid = false;
 
-void setEvent(const char *text) { strlcpy(lastEventText, text, sizeof(lastEventText)); }
+// Remember the last two events for the screen, each stamped with seconds since boot.
+void setEvent(const char *text) {
+  strlcpy(prevEventText, lastEventText, sizeof(prevEventText));
+  snprintf(lastEventText, sizeof(lastEventText), "%lus %s", millis() / 1000UL, text);
+}
 
 Slot slot = Slot::None;
 volatile bool policyDirty = false;
@@ -165,6 +172,54 @@ void applyPolicy() {
   changed = true;
 }
 
+// Plain-words names for the most common Bluetooth disconnect reason codes.
+const char *hciReasonText(int code) {
+  switch (code) {
+    case 0x05: return "auth failure";
+    case 0x06: return "key missing";
+    case 0x08: return "link timeout";
+    case 0x13: return "remote ended";
+    case 0x14: return "remote low resources";
+    case 0x15: return "remote power off";
+    case 0x16: return "we ended";
+    case 0x1A: return "unsupported feature";
+    case 0x3D: return "MIC failure";
+    case 0x3E: return "connect failed";
+    default: return "other";
+  }
+}
+
+// Listens to low-level link events so the screen can say WHY a link ended.
+ble_gap_event_listener gapListener;
+
+int onGapEvent(struct ble_gap_event *event, void *) {
+  switch (event->type) {
+    case BLE_GAP_EVENT_DISCONNECT: {
+      const int r = event->disconnect.reason;
+      const int code = (r >= BLE_HS_ERR_HCI_BASE) ? (r - BLE_HS_ERR_HCI_BASE) : r;
+      snprintf(pendingReason, sizeof(pendingReason), "dropped: %s (0x%02X)", hciReasonText(code), code);
+      pendingReasonValid = true;
+      Serial.printf("disconnect reason: %s (0x%02X)\n", hciReasonText(code), code);
+      break;
+    }
+    case BLE_GAP_EVENT_ENC_CHANGE:
+      if (event->enc_change.status != 0) {
+        char text[40];
+        snprintf(text, sizeof(text), "encryption failed (%d)", event->enc_change.status);
+        setEvent(text);
+        Serial.printf("%s\n", text);
+      }
+      break;
+    case BLE_GAP_EVENT_REPEAT_PAIRING:
+      setEvent("repeat pairing: bond replaced");
+      Serial.println("repeat pairing: a device paired again; the old bond is replaced");
+      break;
+    default:
+      break;
+  }
+  return 0;
+}
+
 class ServerCb : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
     portENTER_CRITICAL(&mux);
@@ -180,6 +235,8 @@ class ServerCb : public NimBLEServerCallbacks {
       break;
     }
     portEXIT_CRITICAL(&mux);
+    setEvent("link up, not yet encrypted");
+    changed = true;
   }
   void onDisconnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
     portENTER_CRITICAL(&mux);
@@ -188,9 +245,10 @@ class ServerCb : public NimBLEServerCallbacks {
     if (c) c->used = false;
     portEXIT_CRITICAL(&mux);
     if (!ours) {
-      setEvent("dropped by host/link");
+      setEvent(pendingReasonValid ? pendingReason : "dropped by host/link");
       Serial.println("connection dropped by the host or the link");
     }
+    pendingReasonValid = false;
     changed = true;  // also ends any pairing overlay
   }
   uint32_t onPassKeyRequest() override {
@@ -223,6 +281,16 @@ void sendReport(uint8_t mods, uint8_t key) {
 }
 
 // The Mac app writes a ready-made 8-byte HID report; it is relayed to the host.
+// Tells the screen when the Mac app actually uses the control service.
+class StateCb : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic *, ble_gap_conn_desc *, uint16_t subValue) override {
+    if (subValue != 0) {
+      setEvent("app subscribed to state");
+      changed = true;
+    }
+  }
+};
+
 class KeysCb : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
     if (roleOfHandle(desc->conn_handle) != kMacRole) return;
@@ -270,6 +338,8 @@ void begin() {
   prefs.begin("kvmble", false);
 
   NimBLEDevice::init("Desk Keyboard");
+  const int listenRc = ble_gap_event_listener_register(&gapListener, onGapEvent, nullptr);
+  if (listenRc != 0) Serial.printf("gap listener register failed: %d\n", listenRc);
   if (prefs.getUChar("schema", 0) < kSchema) {
     // Earlier versions stored hosts by an address that could be the wrong one.
     // Start clean: every device has to pair again once.
@@ -308,6 +378,7 @@ void begin() {
                       NIMBLE_PROPERTY::NOTIFY);
   const uint8_t zero = 0;
   stateChr->setValue(&zero, 1);
+  stateChr->setCallbacks(new StateCb());
   NimBLECharacteristic *ver = ctl->createCharacteristic(
       kVerUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN);
   ver->setValue(std::string(KVM_VERSION " " KVM_BUILD));
@@ -358,6 +429,8 @@ bool macConnected() {
 }
 
 const char *lastEvent() { return lastEventText; }
+
+const char *prevEvent() { return prevEventText; }
 
 int bondCount() { return NimBLEDevice::getNumBonds(); }
 

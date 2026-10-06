@@ -19,10 +19,15 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
     var onDeviceVersion: ((String) -> Void)?
     /// Called when readiness changes (true once paired, subscribed and the target is known).
     var onReady: ((Bool) -> Void)?
+    /// Called whenever a diagnostic event is added to `events`.
+    var onLog: (() -> Void)?
 
     private(set) var isReady = false {
         didSet { if oldValue != isReady { onReady?(isReady) } }
     }
+
+    /// Recent Bluetooth events, oldest first, each stamped with the time. For diagnosis.
+    private(set) var events: [String] = []
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -32,8 +37,36 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
     private var versionChar: CBCharacteristic?
     private let savedIDKey = "devicePeripheralID"
 
+    /// The most recent problem, kept so it stays visible while the app retries.
+    private var lastIssue = ""
+    private var connectWatchdog: DispatchWorkItem?
+
+    private static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
     func start() {
+        log("app started")
         central = CBCentralManager(delegate: self, queue: nil)
+    }
+
+    // MARK: Diagnostics
+
+    func log(_ text: String) {
+        events.append("\(Self.timeFormat.string(from: Date())) \(text)")
+        if events.count > 60 { events.removeFirst(events.count - 60) }
+        onLog?()
+    }
+
+    /// Turns a Bluetooth error into plain text with its name and number.
+    static func describe(_ error: Error?) -> String {
+        guard let error = error else { return "no error" }
+        let ns = error as NSError
+        if let cb = error as? CBError { return "CBError \(ns.code) \(cb.code): \(ns.localizedDescription)" }
+        if let att = error as? CBATTError { return "CBATTError \(ns.code) \(att.code): \(ns.localizedDescription)" }
+        return "\(ns.domain) \(ns.code): \(ns.localizedDescription)"
     }
 
     // MARK: Sending
@@ -54,16 +87,22 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
 
     private func status(_ s: String) { onStatus?(s) }
 
+    private func connectingText() -> String {
+        lastIssue.isEmpty ? "Connecting…" : "Connecting… (last: \(lastIssue))"
+    }
+
     private func beginScan() {
         guard central.state == .poweredOn else { return }
         // Reconnect to the remembered device directly when possible.
         if let idString = UserDefaults.standard.string(forKey: savedIDKey),
            let id = UUID(uuidString: idString),
            let known = central.retrievePeripherals(withIdentifiers: [id]).first {
+            log("remembered device found, connecting directly")
             connect(known)
             return
         }
-        status("Scanning for the device…")
+        log("scanning for the device")
+        status(lastIssue.isEmpty ? "Scanning for the device…" : "Scanning… (last: \(lastIssue))")
         central.scanForPeripherals(withServices: nil, options: nil)
     }
 
@@ -71,16 +110,39 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
         central.stopScan()
         peripheral = p
         p.delegate = self
-        status("Connecting…")
+        status(connectingText())
+        log("connect() called")
         central.connect(p, options: nil)
+        armWatchdog()
+    }
+
+    /// If the device does not accept the connection within 15 s, say so instead of sitting on "Connecting…".
+    private func armWatchdog() {
+        connectWatchdog?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self, let p = self.peripheral, p.state == .connecting else { return }
+            self.lastIssue = "no response from the device after 15 s"
+            self.log("still connecting after 15 s: the device is not accepting the connection")
+            self.status(self.connectingText())
+        }
+        connectWatchdog = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: item)
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
-        case .poweredOn: beginScan()
-        case .unauthorized: status("Bluetooth permission denied (System Settings > Privacy)")
-        case .poweredOff: status("Bluetooth is off")
-        default: status("Bluetooth unavailable")
+        case .poweredOn:
+            log("Bluetooth is on")
+            beginScan()
+        case .unauthorized:
+            log("Bluetooth permission denied")
+            status("Bluetooth permission denied (System Settings > Privacy)")
+        case .poweredOff:
+            log("Bluetooth is off")
+            status("Bluetooth is off")
+        default:
+            log("Bluetooth state \(central.state.rawValue)")
+            status("Bluetooth unavailable")
         }
     }
 
@@ -89,22 +151,31 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? p.name
         let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
         if name == Self.deviceName || services.contains(Self.service) {
+            log("discovered \(name ?? "device"), signal \(RSSI)")
             connect(p)
         }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect p: CBPeripheral) {
+        connectWatchdog?.cancel()
         UserDefaults.standard.set(p.identifier.uuidString, forKey: savedIDKey)
+        log("connected (didConnect)")
         status("Connected, looking for services…")
         p.discoverServices([Self.service])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        reset(reason: "Connection failed, retrying…")
+        connectWatchdog?.cancel()
+        lastIssue = "connection failed: \(Self.describe(error))"
+        log("didFailToConnect: \(Self.describe(error))")
+        reset(reason: "Connection failed (\(Self.describe(error))), retrying…")
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        reset(reason: "Disconnected, retrying…")
+        connectWatchdog?.cancel()
+        lastIssue = "disconnected: \(Self.describe(error))"
+        log("didDisconnectPeripheral: \(Self.describe(error))")
+        reset(reason: "Disconnected (\(Self.describe(error))), retrying…")
     }
 
     private func reset(reason: String) {
@@ -120,8 +191,11 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
     // MARK: Services
 
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
+        let found = p.services?.map { $0.uuid.uuidString.prefix(8) }.joined(separator: ", ") ?? "none"
+        log("services: \(found); \(Self.describe(error))")
         guard let svc = p.services?.first(where: { $0.uuid == Self.service }) else {
             // The device may not have refreshed its service list; try again from scratch.
+            lastIssue = "control service not found"
             status("Control service not found")
             central.cancelPeripheralConnection(p)
             return
@@ -139,29 +213,56 @@ final class BLEClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate 
             default: break
             }
         }
+        log("characteristics: keys \(keysChar != nil), cmd \(cmdChar != nil), state \(stateChar != nil), version \(versionChar != nil); \(Self.describe(error))")
         guard let state = stateChar, keysChar != nil, cmdChar != nil else {
+            lastIssue = "control characteristics missing"
             status("Control characteristics missing")
             return
         }
         // Reading and subscribing to the state needs an encrypted link, so this
         // is what triggers the pairing prompt the first time.
         status("Pairing: enter the code shown on the device")
+        log("subscribing and reading state (this triggers pairing)")
         p.setNotifyValue(true, for: state)
         p.readValue(for: state)
     }
 
+    func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor c: CBCharacteristic, error: Error?) {
+        if let error = error {
+            lastIssue = "subscribe failed: \(Self.describe(error))"
+            log("subscribe failed: \(Self.describe(error))")
+        } else {
+            log("subscribed (notifying: \(c.isNotifying))")
+        }
+    }
+
+    func peripheral(_ p: CBPeripheral, didWriteValueFor c: CBCharacteristic, error: Error?) {
+        if let error = error { log("write failed: \(Self.describe(error))") }
+    }
+
+    func peripheral(_ p: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
+        log("device changed its services")
+    }
+
     func peripheral(_ p: CBPeripheral, didUpdateValueFor c: CBCharacteristic, error: Error?) {
         if let error = error {
-            status("Waiting for pairing (\(error.localizedDescription))")
+            lastIssue = "read failed: \(Self.describe(error))"
+            log("read failed: \(Self.describe(error))")
+            status("Waiting for pairing (\(Self.describe(error)))")
             return
         }
         if c.uuid == Self.versionUUID {
-            if let data = c.value, let text = String(data: data, encoding: .utf8) { onDeviceVersion?(text) }
+            if let data = c.value, let text = String(data: data, encoding: .utf8) {
+                log("device firmware \(text)")
+                onDeviceVersion?(text)
+            }
             return
         }
         guard c.uuid == Self.stateUUID, let byte = c.value?.first else { return }
         let firstTime = !isReady
         isReady = true
+        lastIssue = ""
+        log("ready: device target \(byte)")
         status("Connected")
         onTarget?(Int(byte))
         if firstTime, let v = versionChar { p.readValue(for: v) }
