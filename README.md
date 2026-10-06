@@ -25,6 +25,11 @@ app's menu (along with the device firmware version it is talking to), and in the
 To release a change: edit `VERSION`, add a matching entry at the top of `CHANGELOG.md`, and
 push. CI fails if the two disagree. Releases use the changelog entry as their notes.
 
+## Bugs and backlog
+
+Tracked in the KVM Jira project. See `docs/BUG_REPORTS.md` for what to include in a bug and
+how fixes flow back to you.
+
 ## Flash and check
 
 Easiest: run the **build** workflow (Actions tab, Run workflow), then download
