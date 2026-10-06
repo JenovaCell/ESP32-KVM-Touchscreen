@@ -35,7 +35,8 @@ const char *kStateUuid = "7d1b0004-5a3c-4f8e-9c1d-4b6a2e0f1a01";  // read/notify
 const char *kVerUuid = "7d1b0005-5a3c-4f8e-9c1d-4b6a2e0f1a01";    // read: firmware version text
 
 // Roles: 0 = Work host, 1 = Game host, 2 = Mac app. Stored address per role.
-const char *kPeerKey[3] = {"peerW", "peerG", "peerM"};
+const char *kPeerKey[3] = {"idW", "idG", "idM"};  // stored identity address per role
+const uint8_t kSchema = 2;  // bump to wipe all pairings on the next boot
 const int kMacRole = 2;
 
 constexpr int kMaxConns = 3;
