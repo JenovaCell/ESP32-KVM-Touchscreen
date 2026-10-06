@@ -1,4 +1,4 @@
-// Stage 3b: display + touch + Bluetooth keyboard + Mac link.
+// Display + touch + Bluetooth keyboard for the hosts + USB link to the Mac app.
 // Shows the active target (MAC / WORK / GAME). Tap the left half of the screen
 // to move one step left (toward GAME), the right half to move one step right
 // (toward WORK). The last target is remembered across power cycles.
@@ -14,6 +14,7 @@
 #include <Wire.h>
 
 #include "ble_kbd.h"
+#include "maclink.h"
 
 #if KVM_BACKLIGHT_PIN < 0 && !defined(KVM_CI_COMPILE_ONLY)
 #error "Set the pins in platformio.ini (BOARD VALUES) before building."
@@ -114,7 +115,7 @@ static void drawTarget(Target t) {
   tft.setTextSize(1);
   tft.drawString(s.hint, cx, tft.height() / 2 + 50, 2);
   const char *status;
-  if (t == Target::Mac) status = kbd::macConnected() ? "Mac app connected" : "waiting for Mac app";
+  if (t == Target::Mac) status = maclink::connected() ? "Mac app connected (USB)" : "waiting for Mac app (USB)";
   else status = kbd::connected() ? "connected" : "waiting for host";
   tft.drawString(status, cx, tft.height() - 40, 2);
   // Diagnostics: the previous and the latest Bluetooth event, centred on the screen.
@@ -209,7 +210,7 @@ static void step(int dir) {
   spatialPos = next;
   const Target t = kSpatial[spatialPos];
   kbd::setSlot(slotFor(t));
-  kbd::publishTarget(static_cast<uint8_t>(t));
+  maclink::publishTarget(static_cast<uint8_t>(t));
   showCurrent();
   prefs.putUChar("target", static_cast<uint8_t>(t));
   Serial.println(kStyles[static_cast<int>(t)].label);
@@ -234,10 +235,11 @@ void setup() {
   prefs.begin("kvm", false);
   const uint8_t saved = prefs.getUChar("target", static_cast<uint8_t>(Target::Mac));
   if (saved < kSpatialCount) spatialPos = posOf(static_cast<Target>(saved));
+  maclink::begin();
   kbd::begin();
   while (millis() - splashStart < 1200) delay(10);  // keep the splash readable
   kbd::setSlot(slotFor(kSpatial[spatialPos]));
-  kbd::publishTarget(static_cast<uint8_t>(kSpatial[spatialPos]));
+  maclink::publishTarget(static_cast<uint8_t>(kSpatial[spatialPos]));
   showCurrent();
   Serial.println("stage 3b: display + touch + bluetooth up");
 }
@@ -247,13 +249,15 @@ void loop() {
   static uint32_t downAt = 0, lastRelease = 0;
   static int downScreenX = 0;
 
+  maclink::poll();
   kbd::poll();
 
   uint32_t code;
   if (kbd::takePasskey(code)) drawPasskey(code);
-  if (kbd::takeChanged()) showCurrent();  // also ends the pairing overlay
+  // `|` not `||`: both flags must be read every time.
+  if (kbd::takeChanged() | maclink::takeChanged()) showCurrent();  // also ends the pairing overlay
   int macStep;
-  if (kbd::takeStep(macStep)) step(macStep);
+  if (maclink::takeStep(macStep)) step(macStep);
 
   int rawX, rawY;
   const bool down = readTouch(rawX, rawY);
@@ -288,5 +292,5 @@ void loop() {
   }
   wasDown = down;
 
-  delay(15);
+  delay(3);  // short, so keystrokes from the Mac are relayed quickly
 }

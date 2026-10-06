@@ -5,7 +5,7 @@ import CoreGraphics
 /// they are swallowed and sent to the device as HID reports. A double-tap of the left or
 /// right Command key switches the device's target (left = toward Game, right = toward Work).
 final class KeyBridge {
-    private let ble: BLEClient
+    private let ble: DeviceLink
     private var tap: CFMachPort?
     private var retryTimer: Timer?
 
@@ -34,7 +34,7 @@ final class KeyBridge {
     private let tapMax: TimeInterval = 0.30      // longest press that counts as a tap
     private let doubleWindow: TimeInterval = 0.35
 
-    init(ble: BLEClient) { self.ble = ble }
+    init(ble: DeviceLink) { self.ble = ble }
 
     // MARK: Event tap
 

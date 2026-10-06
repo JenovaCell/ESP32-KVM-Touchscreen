@@ -23,8 +23,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>KVMBridge connects to your KVM device over Bluetooth to send keystrokes.</string>
 </dict>
 </plist>
 PLIST

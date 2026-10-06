@@ -19,25 +19,9 @@ const uint8_t kReportMap[] = {
     0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00,
     0xC0};
 
-// Control service used by the Mac app.
-const char *kCtlSvc = "7d1b0001-5a3c-4f8e-9c1d-4b6a2e0f1a01";
-const char *kKeysUuid = "7d1b0002-5a3c-4f8e-9c1d-4b6a2e0f1a01";   // write: 8-byte HID report
-const char *kCmdUuid = "7d1b0003-5a3c-4f8e-9c1d-4b6a2e0f1a01";    // write: 1 = step left, 2 = step right
-const char *kStateUuid = "7d1b0004-5a3c-4f8e-9c1d-4b6a2e0f1a01";  // read/notify: active target
-
-#ifndef KVM_VERSION
-#define KVM_VERSION "dev"
-#endif
-#ifndef KVM_BUILD
-#define KVM_BUILD "dev"
-#endif
-
-const char *kVerUuid = "7d1b0005-5a3c-4f8e-9c1d-4b6a2e0f1a01";    // read: firmware version text
-
-// Roles: 0 = Work host, 1 = Game host, 2 = Mac app. Stored address per role.
-const char *kPeerKey[3] = {"idW", "idG", "idM"};  // stored identity address per role
+// Roles: 0 = Work host, 1 = Game host. Stored identity address per role.
+const char *kPeerKey[2] = {"idW", "idG"};
 const uint8_t kSchema = 2;  // bump to wipe all pairings on the next boot
-const int kMacRole = 2;
 
 constexpr int kMaxConns = 3;
 
@@ -53,7 +37,6 @@ struct Conn {
 
 NimBLEServer *server = nullptr;
 NimBLECharacteristic *input = nullptr;
-NimBLECharacteristic *stateChr = nullptr;
 Preferences prefs;
 
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -75,21 +58,11 @@ volatile bool policyDirty = false;
 volatile bool changed = false;
 volatile bool havePass = false;
 volatile uint32_t pass = 0;
-volatile int pendingStep = 0;
 
 Conn *findLocked(uint16_t handle) {
   for (auto &c : conns)
     if (c.used && c.handle == handle) return &c;
   return nullptr;
-}
-
-int roleOfHandle(uint16_t handle) {
-  int role = -1;
-  portENTER_CRITICAL(&mux);
-  Conn *c = findLocked(handle);
-  if (c && c->authed) role = c->role;
-  portEXIT_CRITICAL(&mux);
-  return role;
 }
 
 // Is the HID host for the current slot connected?
@@ -119,8 +92,8 @@ void closeConn(uint16_t handle, const char *why) {
 const uint32_t kIdentityWaitMs = 600;
 
 // Decide what each authenticated connection is allowed to be.
-// An unknown device that pairs becomes the host for the active target
-// (or the Mac app when the Mac screen is active), if that role is still free.
+// An unknown device that pairs becomes the host for the active target, if that role is
+// still free. On the MAC screen the board is not a keyboard for anyone.
 void applyPolicy() {
   Conn snap[kMaxConns];
   portENTER_CRITICAL(&mux);
@@ -130,6 +103,10 @@ void applyPolicy() {
   bool waiting = false;
   for (auto &c : snap) {
     if (!c.used || !c.authed) continue;
+    if (slot == Slot::None) {
+      closeConn(c.handle, "refused: MAC screen");
+      continue;
+    }
     if (millis() - c.authedAt < kIdentityWaitMs) {
       waiting = true;
       continue;
@@ -140,22 +117,21 @@ void applyPolicy() {
     if (ble_gap_conn_find(c.handle, &d) == 0)
       addr = NimBLEAddress(d.peer_id_addr).toString().c_str();
 
+    const int want = static_cast<int>(slot);
     int role = -1;
-    for (int r = 0; r < 3; r++)
+    for (int r = 0; r < 2; r++)
       if (prefs.getString(kPeerKey[r], "") == addr) role = r;
     if (role < 0) {
-      const int want = (slot == Slot::None) ? kMacRole : static_cast<int>(slot);
       if (prefs.getString(kPeerKey[want], "").length() == 0) {
         prefs.putString(kPeerKey[want], addr);
         role = want;
-        setEvent(want == kMacRole ? "paired: Mac app" : (want == 0 ? "paired: work host" : "paired: game host"));
+        setEvent(want == 0 ? "paired: work host" : "paired: game host");
       } else {
         closeConn(c.handle, "refused: unknown device");
         continue;
       }
     }
-    const bool allowed = (role == kMacRole) || (role == static_cast<int>(slot));
-    if (!allowed) {
+    if (role != want) {
       closeConn(c.handle, "refused: not this target");
       continue;
     }
@@ -166,7 +142,7 @@ void applyPolicy() {
       strlcpy(p->addr, addr.c_str(), sizeof(p->addr));
     }
     portEXIT_CRITICAL(&mux);
-    if (role != kMacRole) setEvent("host connected");
+    setEvent("host connected");
   }
   if (waiting) policyDirty = true;  // look again shortly
   changed = true;
@@ -280,17 +256,6 @@ void sendReport(uint8_t mods, uint8_t key) {
   input->notify();
 }
 
-// The Mac app writes a ready-made 8-byte HID report; it is relayed to the host.
-// Tells the screen when the Mac app actually uses the control service.
-class StateCb : public NimBLECharacteristicCallbacks {
-  void onSubscribe(NimBLECharacteristic *, ble_gap_conn_desc *, uint16_t subValue) override {
-    if (subValue != 0) {
-      setEvent("app subscribed to state");
-      changed = true;
-    }
-  }
-};
-
 volatile uint32_t statRx = 0, statTxOk = 0, statTxFail = 0, statNoHost = 0, statBad = 0;
 
 // notify() returns bool in some library versions and void in others; report success either way.
@@ -303,35 +268,6 @@ bool notifyChecked(C *c, long) {
   c->notify();
   return true;
 }
-
-class KeysCb : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
-    if (roleOfHandle(desc->conn_handle) != kMacRole) return;
-    const std::string v = c->getValue();
-    if (v.size() != 8) {
-      statBad++;
-      return;
-    }
-    statRx++;
-    if (!hostLinked()) {
-      statNoHost++;
-      return;
-    }
-    input->setValue(reinterpret_cast<const uint8_t *>(v.data()), 8);
-    if (notifyChecked(input, 0)) statTxOk++;
-    else statTxFail++;
-  }
-};
-
-class CmdCb : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
-    if (roleOfHandle(desc->conn_handle) != kMacRole) return;
-    const std::string v = c->getValue();
-    if (v.empty()) return;
-    if (v[0] == 1) pendingStep = -1;
-    else if (v[0] == 2) pendingStep = +1;
-  }
-};
 
 bool keyFor(char c, uint8_t &mods, uint8_t &key) {
   mods = 0;
@@ -371,6 +307,16 @@ void begin() {
     prefs.remove("peerM");
     prefs.putUChar("schema", kSchema);
   }
+  // The Mac app used to be a paired Bluetooth device (roles in earlier versions). It now
+  // talks over the USB cable, so forget its old pairing and keep the host pairings.
+  const String oldMac = prefs.getString("idM", "");
+  if (oldMac.length() > 0) {
+    for (int i = NimBLEDevice::getNumBonds() - 1; i >= 0; --i) {
+      NimBLEAddress a = NimBLEDevice::getBondedAddress(i);
+      if (String(a.toString().c_str()) == oldMac) NimBLEDevice::deleteBond(a);
+    }
+    prefs.remove("idM");
+  }
   NimBLEDevice::setSecurityAuth(true, true, true);  // bonding, MITM, secure connections
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
@@ -388,26 +334,7 @@ void begin() {
   hid->startServices();
   hid->setBatteryLevel(100);
 
-  NimBLEService *ctl = server->createService(kCtlSvc);
-  NimBLECharacteristic *keys = ctl->createCharacteristic(
-      kKeysUuid, NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
-  keys->setCallbacks(new KeysCb());
-  NimBLECharacteristic *cmd = ctl->createCharacteristic(
-      kCmdUuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
-  cmd->setCallbacks(new CmdCb());
-  stateChr = ctl->createCharacteristic(
-      kStateUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN |
-                      NIMBLE_PROPERTY::NOTIFY);
-  const uint8_t zero = 0;
-  stateChr->setValue(&zero, 1);
-  stateChr->setCallbacks(new StateCb());
-  NimBLECharacteristic *ver = ctl->createCharacteristic(
-      kVerUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN);
-  ver->setValue(std::string(KVM_VERSION " " KVM_BUILD));
-  ctl->start();
-
-  // Advertising data: keyboard appearance, HID service and name. The control
-  // service goes in the scan response (it does not fit alongside the name).
+  // Advertising data: keyboard appearance, HID service and name.
   NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
   NimBLEAdvertisementData ad;
   ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
@@ -415,9 +342,6 @@ void begin() {
   ad.setCompleteServices(NimBLEUUID(static_cast<uint16_t>(0x1812)));
   ad.setName("Desk Keyboard");
   adv->setAdvertisementData(ad);
-  NimBLEAdvertisementData sr;
-  sr.setCompleteServices(NimBLEUUID(kCtlSvc));
-  adv->setScanResponseData(sr);
   adv->setMinInterval(32);  // 20 ms, so hosts reconnect quickly
   adv->setMaxInterval(48);
 }
@@ -434,6 +358,21 @@ void poll() {
     applyPolicy();
   }
   NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+  if (slot == Slot::None) {
+    // MAC screen: the board is not a keyboard for any host. Stop advertising and hang up.
+    if (adv->isAdvertising()) adv->stop();
+    static uint32_t lastDrop = 0;
+    if (server->getConnectedCount() > 0 && millis() - lastDrop > 500) {
+      lastDrop = millis();
+      Conn snap[kMaxConns];
+      portENTER_CRITICAL(&mux);
+      memcpy(snap, conns, sizeof(conns));
+      portEXIT_CRITICAL(&mux);
+      for (auto &c : snap)
+        if (c.used) closeConn(c.handle, "refused: MAC screen");
+    }
+    return;
+  }
   const bool room = server->getConnectedCount() < CONFIG_BT_NIMBLE_MAX_CONNECTIONS;
   if (room && !adv->isAdvertising()) adv->start();
   if (!room && adv->isAdvertising()) adv->stop();
@@ -441,13 +380,20 @@ void poll() {
 
 bool connected() { return hostLinked(); }
 
-bool macConnected() {
-  bool ok = false;
-  portENTER_CRITICAL(&mux);
-  for (auto &c : conns)
-    if (c.used && c.authed && c.role == kMacRole) ok = true;
-  portEXIT_CRITICAL(&mux);
-  return ok;
+// Sends one 8-byte HID report (from the Mac app, over USB) to the connected host.
+bool relayReport(const uint8_t *report) {
+  statRx++;
+  if (!hostLinked()) {
+    statNoHost++;
+    return false;
+  }
+  input->setValue(report, 8);
+  if (notifyChecked(input, 0)) {
+    statTxOk++;
+    return true;
+  }
+  statTxFail++;
+  return false;
 }
 
 KeyStats keyStats() { return {statRx, statTxOk, statTxFail, statNoHost, statBad}; }
@@ -471,19 +417,6 @@ bool takeChanged() {
   return true;
 }
 
-bool takeStep(int &dir) {
-  const int s = pendingStep;
-  if (s == 0) return false;
-  pendingStep = 0;
-  dir = s;
-  return true;
-}
-
-void publishTarget(uint8_t target) {
-  stateChr->setValue(&target, 1);
-  stateChr->notify();
-}
-
 void typeText(const char *text) {
   if (!hostLinked()) return;
   for (; *text; ++text) {
@@ -497,7 +430,8 @@ void typeText(const char *text) {
 }
 
 void forgetCurrentHost() {
-  const int role = (slot == Slot::None) ? kMacRole : static_cast<int>(slot);
+  if (slot == Slot::None) return;  // nothing to forget on the MAC screen
+  const int role = static_cast<int>(slot);
   const String mine = prefs.getString(kPeerKey[role], "");
   if (mine.length() > 0) {
     for (int i = NimBLEDevice::getNumBonds() - 1; i >= 0; --i) {

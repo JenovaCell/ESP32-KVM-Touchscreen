@@ -4,7 +4,7 @@ import CoreGraphics
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let ble = BLEClient()
+    private let ble = DeviceLink()
     private lazy var keys = KeyBridge(ble: ble)
 
     private let targetNames = ["MAC", "WORK", "GAME"]
@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "dev"
     private let versionItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let deviceVersionItem = NSMenuItem(title: "Device firmware: not connected", action: nil, keyEquivalent: "")
-    private let bleItem = NSMenuItem(title: "Bluetooth: starting…", action: nil, keyEquivalent: "")
+    private let bleItem = NSMenuItem(title: "Board link: starting…", action: nil, keyEquivalent: "")
     private let permItem = NSMenuItem(title: "Keyboard access: waiting", action: nil, keyEquivalent: "")
     private let statsItem = NSMenuItem(title: "Keys sent: 0", action: nil, keyEquivalent: "")
     private let eventsItem = NSMenuItem(title: "Recent events", action: nil, keyEquivalent: "")
@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         ble.onLog = { [weak self] in self?.refreshEvents() }
         ble.onStatus = { [weak self] s in
-            self?.bleItem.title = "Bluetooth: \(s)"
+            self?.bleItem.title = "Board link: \(s)"
         }
         ble.onDeviceVersion = { [weak self] v in
             self?.deviceVersionItem.title = "Device firmware: v\(v)"

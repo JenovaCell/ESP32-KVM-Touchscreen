@@ -9,6 +9,43 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.5.0] - 2026-10-06
+
+**Breaking: the Mac app now talks to the board over the USB cable instead of Bluetooth.**
+Decision in KVM-17, implementation in KVM-18. This is the fix path for KVM-16 (letters repeat
+on the Work PC; the old Bluetooth link filled up and timed out) and removes the Mac pairing
+behind KVM-13. Replace the firmware and the Mac app together.
+
+### Changed
+- Mac app and board talk over a serial port on the USB-C cable. Simple text lines: `@H`
+  heartbeat once a second, `@K <hex>` key report, `@S L|R` step target; the board answers
+  with `@T <target>` and `@V <version>`. Lines without `@` (debug text) are ignored.
+- The app finds the board by itself and rescans every second, so unplugging and replugging the
+  cable recovers without restarting anything. The link counts as lost after 3 s of silence.
+- Bluetooth is now used only for the work laptop and the gaming PC. On the MAC screen the board
+  does not advertise and disconnects any host.
+- Mac app: no Bluetooth permission is needed any more. The menu shows "Board link" instead of
+  "Bluetooth" and counters `keys sent, release re-sends, write errors, board lines`.
+- Board: the main loop runs every 3 ms (was 15 ms) so keystrokes are relayed quickly.
+- Kept from 0.4.4: the app only sends a key report when the key state changes, and re-sends
+  "all keys up" shortly after the last release.
+
+### Removed
+- The Bluetooth control service, the Mac app's Bluetooth pairing and its role on the board.
+  The Mac's old pairing is removed from the board on first boot; the work laptop and gaming PC
+  pairings are kept.
+- The Bluetooth write queue and flow control in the Mac app (not needed on a wired link).
+
+### Upgrade notes
+- The board must be plugged into the Mac to use the Mac keyboard.
+- Flash `kvm-merged.bin`, replace the Mac app, and check the menu says "Connected (USB)".
+- If the menu says "Keyboard access: waiting" although KVMBridge is switched on, run
+  `tccutil reset All io.github.jenovacell.kvmbridge`, reopen the app and grant the prompts.
+
+### Status
+- Unverified on hardware. Compiles in CI. Open questions: how macOS 27 treats the serial port,
+  and whether opening the port resets the board.
+
 ## [0.4.4] - 2026-10-06
 
 Fix attempt and instrumentation for KVM-16 (letters repeat on the Work PC). The cause is not
