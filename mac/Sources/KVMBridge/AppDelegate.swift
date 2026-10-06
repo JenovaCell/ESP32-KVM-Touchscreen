@@ -116,6 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "",
         ]
         lines.append(contentsOf: ble.events)
+        lines.append("")
+        lines.append("Key trace (Mac time; 'board' lines show the board's own clock in ms, + = sent to PC):")
+        lines.append(contentsOf: ble.keyTrace)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(lines.joined(separator: "\n"), forType: .string)

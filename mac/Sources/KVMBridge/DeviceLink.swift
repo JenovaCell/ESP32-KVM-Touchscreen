@@ -66,6 +66,20 @@ final class DeviceLink {
 
     // MARK: Diagnostics
 
+    /// Millisecond-stamped trace of key events, reports sent and what the board relayed,
+    /// to find where a key release goes wrong (KVM-20). Oldest first.
+    private(set) var keyTrace: [String] = []
+    private static let traceFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    func trace(_ text: String) {
+        keyTrace.append("\(Self.traceFormat.string(from: Date())) \(text)")
+        if keyTrace.count > 120 { keyTrace.removeFirst(keyTrace.count - 120) }
+    }
+
     func log(_ text: String) {
         events.append("\(Self.timeFormat.string(from: Date())) \(text)")
         if events.count > 60 { events.removeFirst(events.count - 60) }
@@ -102,6 +116,7 @@ final class DeviceLink {
         if !force && report == lastSent { return }  // auto-repeat events add nothing new
         lastSent = report
         let hex = report.map { String(format: "%02x", $0) }.joined()
+        trace((force ? "resend " : "send   ") + hex)
         send("@K \(hex)\n")
         reportsSent += 1
     }
@@ -245,6 +260,8 @@ final class DeviceLink {
                 status("Connected (USB)")
             }
             onTarget?(target)
+        case "@R":  // "@R <board ms> <+|-> <hex>": what the board relayed to the PC
+            trace("board  " + (parts.count == 2 ? parts[1] : ""))
         case "@V":
             if parts.count == 2 { onDeviceVersion?(parts[1]) }
         default:

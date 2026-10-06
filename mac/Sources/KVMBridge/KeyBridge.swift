@@ -127,6 +127,7 @@ final class KeyBridge {
             guard swallowing else { return pass }
             swallowedCodes.insert(code)
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            ble.trace("key down \(code)\(isRepeat ? " (auto-repeat)" : "")")
             if !isRepeat, let usage = HIDMap.usage[code], !pressed.contains(usage), pressed.count < 6 {
                 pressed.append(usage)
             }
@@ -134,6 +135,7 @@ final class KeyBridge {
             return nil
         } else {
             if swallowedCodes.remove(code) != nil {
+                ble.trace("key up   \(code)")
                 if let usage = HIDMap.usage[code] { pressed.removeAll { $0 == usage } }
                 sendReport()
                 return nil

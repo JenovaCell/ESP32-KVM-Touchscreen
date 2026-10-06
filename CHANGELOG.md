@@ -9,6 +9,21 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.5.2] - 2026-10-06
+
+Diagnostic build for KVM-20 (holding a key on WORK repeats inconsistently). **No change to
+typing behaviour.** It only records what happens during a key hold.
+
+### Added
+- Mac app (KVM-20): "Copy diagnostics" now ends with a millisecond-stamped key trace: each key
+  down (marked auto-repeat when macOS repeats it), key up, each report sent to the board, each
+  "all keys up" re-send, and a `board` line for every report the board relayed to the PC (its own
+  clock in ms, `+` sent / `-` failed).
+- Board (KVM-20): for each key report it relays it sends an `@R` line back to the Mac app.
+
+### Status
+- Unverified on hardware. Does not fix KVM-20; it is meant to show its cause.
+
 ## [0.5.1] - 2026-10-06
 
 Release packaging only (KVM-19). No change to the firmware or the Mac app behaviour.

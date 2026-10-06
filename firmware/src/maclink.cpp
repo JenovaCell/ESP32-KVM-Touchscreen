@@ -73,7 +73,11 @@ void handleLine(const char *l) {
   switch (l[1]) {
     case 'K': {  // "@K " + 16 hex digits
       uint8_t report[8];
-      if (strlen(l) >= 19 && parseReport(l + 3, report)) kbd::relayReport(report);
+      if (strlen(l) >= 19 && parseReport(l + 3, report)) {
+        const bool ok = kbd::relayReport(report);
+        // Echo for the Mac app's key trace (KVM-20): board time, sent to host or not, report.
+        LINK.printf("@R %lu %c %.16s\n", static_cast<unsigned long>(millis()), ok ? '+' : '-', l + 3);
+      }
       break;
     }
     case 'S':
