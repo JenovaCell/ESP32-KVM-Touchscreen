@@ -9,6 +9,35 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.10.0] - 2026-10-07
+
+Mouse sharing: the pointer follows the target together with the keyboard (KVM-9).
+
+### Added
+- Board and Mac app (KVM-9): while WORK or GAME is the target, the Mac's pointer is frozen and its
+  movement, clicks (left, right, middle) and scrolling (vertical and horizontal) go to that PC as a
+  Bluetooth mouse. On MAC the pointer works normally. Keyboard and pointer always move together.
+- Reclaim rules: any desktop or app change on the Mac (three-finger swipe, Mission Control, Cmd+Tab)
+  gives keyboard and pointer back to the Mac, or, with "Auto-switch by app" on, re-checks the front app
+  (Elgato Studio gives WORK, Moonlight gives GAME, anything else gives MAC). Double-tap Command, the
+  board's touch screen and a lost board link give the pointer back to the Mac as well, and quitting
+  the app always unfreezes it.
+- Mac menu: "Pointer speed (Work/Game)" (0.5x to 2x) and "Invert scroll direction (Work/Game)", both
+  remembered.
+- Board: new Mac app command `@M <buttons> <dx> <dy> <wheel> <pan>`. Movement is summed on the board
+  and sent at most every few milliseconds; a failed send is retried, so no movement is lost.
+
+### Upgrade notes
+- **Re-pair the work laptop and the gaming PC once after flashing 0.10.0.** The keyboard's description
+  changed again (it now also has a mouse) and Windows keeps the old description until the device is
+  removed and paired again: remove "Desk Keyboard" in Windows Bluetooth settings, hold the screen for 4
+  seconds on that target's screen (forget host), then pair again.
+- Flash the firmware and replace the Mac app together.
+
+### Status
+- Unverified on hardware. Known limits: the Mac pointer is frozen but may stay visible (macOS only hides it for
+  the front app); pointer acceleration is applied on the Mac and again on Windows, so adjust the speed.
+
 ## [0.9.0] - 2026-10-06
 
 Screen sleep when the Mac is asleep, locked or off (KVM-26).

@@ -7,6 +7,7 @@
 //                  @K <16 hex>   one 8-byte keyboard report, e.g. @K 0200040000000000
 //                  @C <4 hex>    one media key (HID consumer usage), 0000 = released
 //                  @S L | @S R   step the target left (toward GAME) or right (toward WORK)
+//                  @M <b> <dx> <dy> <w> <p>   mouse: buttons (1 left, 2 right, 4 middle), movement, wheel, pan
 //                  @Z <1|0>      the Mac is asleep, locked or off (1) / awake again (0)
 //                  @G <0|1|2>    go straight to a target: 0 = Mac, 1 = Work, 2 = Game
 //   Board to Mac:  @T <0|1|2>    active target: 0 = Mac, 1 = Work, 2 = Game

@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statsItem = NSMenuItem(title: "Keys sent: 0", action: nil, keyEquivalent: "")
     private let eventsItem = NSMenuItem(title: "Recent events", action: nil, keyEquivalent: "")
     private let eventsMenu = NSMenu()
+    private let speedMenu = NSMenu()
+    private let speedChoices: [(String, Double)] = [
+        ("0.5x", 0.5), ("0.75x", 0.75), ("1x", 1.0), ("1.5x", 1.5), ("2x", 2.0),
+    ]
+    private let invertItem = NSMenuItem(title: "Invert scroll direction (Work/Game)", action: nil, keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         versionItem.title = "KVMBridge v\(appVersion)"
@@ -56,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                       : "Keyboard access: grant Accessibility + Input Monitoring"
         }
 
+        autoSwitch.currentTarget = { [weak self] in self?.target ?? 0 }
         autoItem.target = self
         autoItem.action = #selector(toggleAutoSwitch)
         autoItem.state = autoSwitch.enabled ? .on : .off
@@ -105,6 +111,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(copy)
         menu.addItem(.separator())
         menu.addItem(autoItem)
+        let speedItem = NSMenuItem(title: "Pointer speed (Work/Game)", action: nil, keyEquivalent: "")
+        speedItem.submenu = speedMenu
+        for (title, value) in speedChoices {
+            let item = NSMenuItem(title: title, action: #selector(setPointerSpeed(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            item.state = abs(keys.pointerScale - value) < 0.001 ? .on : .off
+            speedMenu.addItem(item)
+        }
+        menu.addItem(speedItem)
+        invertItem.target = self
+        invertItem.action = #selector(toggleInvertScroll)
+        invertItem.state = keys.invertScroll ? .on : .off
+        menu.addItem(invertItem)
         menu.addItem(.separator())
         let hint = NSMenuItem(title: "Double-tap Left Cmd: toward GAME", action: nil, keyEquivalent: "")
         let hint2 = NSMenuItem(title: "Double-tap Right Cmd: toward WORK", action: nil, keyEquivalent: "")
@@ -133,6 +153,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Puts the full event history on the clipboard so it can be pasted into a ticket.
+    @objc private func setPointerSpeed(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        keys.pointerScale = value
+        for item in speedMenu.items { item.state = (item === sender) ? .on : .off }
+    }
+
+    @objc private func toggleInvertScroll() {
+        keys.invertScroll.toggle()
+        invertItem.state = keys.invertScroll ? .on : .off
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        keys.shutdown()  // never leave the Mac pointer frozen
+    }
+
     @objc private func toggleAutoSwitch() {
         autoSwitch.setEnabled(!autoSwitch.enabled)
         autoItem.state = autoSwitch.enabled ? .on : .off

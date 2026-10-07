@@ -12,6 +12,8 @@ final class AutoSwitch {
     private var observer: NSObjectProtocol?
 
     private(set) var enabled: Bool
+    /// The target the board is on right now (0 Mac, 1 Work, 2 Game); set by the app.
+    var currentTarget: () -> Int = { 0 }
 
     init(ble: DeviceLink) {
         self.ble = ble
@@ -21,6 +23,15 @@ final class AutoSwitch {
         ) { [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             self?.apply(app)
+        }
+        // A desktop (Space) change, such as a three-finger swipe or Mission Control, counts too (KVM-9).
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // The frontmost app settles a moment after the desktop changes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self?.apply(NSWorkspace.shared.frontmostApplication)
+            }
         }
     }
 
@@ -39,8 +50,16 @@ final class AutoSwitch {
     }
 
     private func apply(_ app: NSRunningApplication?) {
-        guard enabled, ble.isReady, let app = app else { return }
+        guard ble.isReady, let app = app else { return }
         if app.bundleIdentifier == Bundle.main.bundleIdentifier { return }  // our own menu
+        if !enabled {
+            // Auto-switch is off: a desktop or app change still gives keyboard and pointer back to the Mac.
+            if currentTarget() != 0 {
+                ble.log("desktop or app changed (\(app.localizedName ?? "?")): back to Mac")
+                ble.sendGoto(0)
+            }
+            return
+        }
         let t = Self.target(forAppNamed: app.localizedName)
         ble.log("auto-switch: \(app.localizedName ?? "?") -> target \(t)")
         ble.sendGoto(t)

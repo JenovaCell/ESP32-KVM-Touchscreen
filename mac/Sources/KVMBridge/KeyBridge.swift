@@ -19,6 +19,30 @@ final class KeyBridge {
     // HID report state while swallowing.
     private var mods: UInt8 = 0
     private var pressed: [UInt8] = []
+
+    // Mouse (KVM-9): while the target is not the Mac the pointer is frozen on the Mac and its movement,
+    // clicks and scrolling go to the PC.
+    private static let mouseTypes: Set<CGEventType> = [
+        .mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+        .leftMouseDragged, .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel,
+    ]
+    private var capturing = false
+    private var cursorHidden = false
+    private var mouseButtons = 0
+    private var sentMouseButtons = 0
+    private var accX = 0.0, accY = 0.0, accWheel = 0.0, accPan = 0.0
+    private var flushTimer: Timer?
+    /// Pointer speed multiplier (menu setting, remembered).
+    var pointerScale: Double = {
+        let v = UserDefaults.standard.double(forKey: "pointerScale")
+        return v > 0 ? v : 1.0
+    }() {
+        didSet { UserDefaults.standard.set(pointerScale, forKey: "pointerScale") }
+    }
+    /// Flips the scroll direction sent to the PC (menu setting, remembered).
+    var invertScroll: Bool = UserDefaults.standard.bool(forKey: "invertScroll") {
+        didSet { UserDefaults.standard.set(invertScroll, forKey: "invertScroll") }
+    }
     private var swallowedCodes = Set<Int>()
     private var modState: UInt8 = 0          // modifiers the Mac currently sees as down
     private var modSwallowed: UInt8 = 0      // of those, the ones whose press we swallowed
@@ -44,7 +68,8 @@ final class KeyBridge {
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue) |
-            (1 << 14)  // system-defined events: volume, brightness, play/pause and the other function keys
+            (1 << 14) |  // system-defined events: volume, brightness, play/pause and the other function keys
+            KeyBridge.mouseTypes.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
@@ -84,6 +109,7 @@ final class KeyBridge {
             return Unmanaged.passUnretained(event)
         }
         if type.rawValue == 14 { return handleSystem(event) }
+        if Self.mouseTypes.contains(type) { return handleMouse(type: type, event: event) }
         let code = Int(event.getIntegerValueField(.keyboardEventKeycode))
         switch type {
         case .flagsChanged: return handleFlags(code: code, event: event)
@@ -129,6 +155,100 @@ final class KeyBridge {
         return nil
     }
 
+    // MARK: Mouse (KVM-9)
+
+    private func handleMouse(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let pass = Unmanaged.passUnretained(event)
+        // A button that went down on the Mac before capture started goes up on the Mac too.
+        func button(_ bit: Int, down: Bool) -> Unmanaged<CGEvent>? {
+            if down {
+                guard swallowing else { return pass }
+                mouseButtons |= bit
+            } else {
+                guard mouseButtons & bit != 0 else { return pass }
+                mouseButtons &= ~bit
+            }
+            flushMouse()
+            return nil
+        }
+        switch type {
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            guard swallowing else { return pass }
+            accX += Double(event.getIntegerValueField(.mouseEventDeltaX))
+            accY += Double(event.getIntegerValueField(.mouseEventDeltaY))
+            return nil
+        case .leftMouseDown: return button(1, down: true)
+        case .leftMouseUp: return button(1, down: false)
+        case .rightMouseDown: return button(2, down: true)
+        case .rightMouseUp: return button(2, down: false)
+        case .otherMouseDown, .otherMouseUp:
+            guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else { return swallowing ? nil : pass }
+            return button(4, down: type == .otherMouseDown)
+        case .scrollWheel:
+            guard swallowing else { return pass }
+            let sign = invertScroll ? -1.0 : 1.0
+            accWheel += sign * Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
+            accPan += sign * Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis2))
+            return nil
+        default:
+            return pass
+        }
+    }
+
+    /// Sends the movement collected since the last call (called every 10 ms while capturing, and on clicks).
+    private func flushMouse() {
+        let dx = Int((accX * pointerScale).rounded()), dy = Int((accY * pointerScale).rounded())
+        let w = Int(accWheel.rounded()), p = Int(accPan.rounded())
+        guard dx != 0 || dy != 0 || w != 0 || p != 0 || mouseButtons != sentMouseButtons else { return }
+        accX -= Double(dx) / pointerScale
+        accY -= Double(dy) / pointerScale
+        accWheel -= Double(w)
+        accPan -= Double(p)
+        sentMouseButtons = mouseButtons
+        ble.sendMouse(buttons: mouseButtons, dx: dx, dy: dy, wheel: w, pan: p)
+    }
+
+    /// Freezes (and hides) the Mac pointer while the PC has the mouse; gives it back otherwise.
+    private func updateCapture() {
+        let want = swallowing
+        if want == capturing { return }
+        capturing = want
+        if want {
+            _ = CGAssociateMouseAndMouseCursorPosition(0)
+            CGDisplayHideCursor(CGMainDisplayID())
+            cursorHidden = true
+            flushTimer = Timer.scheduledTimer(withTimeInterval: 0.010, repeats: true) { [weak self] _ in
+                self?.flushMouse()
+            }
+        } else {
+            flushTimer?.invalidate()
+            flushTimer = nil
+            if mouseButtons != 0 || sentMouseButtons != 0 {
+                ble.sendMouse(buttons: 0, dx: 0, dy: 0, wheel: 0, pan: 0)  // let go of every button on the PC
+            }
+            mouseButtons = 0
+            sentMouseButtons = 0
+            accX = 0; accY = 0; accWheel = 0; accPan = 0
+            restorePointer()
+        }
+    }
+
+    private func restorePointer() {
+        _ = CGAssociateMouseAndMouseCursorPosition(1)
+        if cursorHidden {
+            CGDisplayShowCursor(CGMainDisplayID())
+            cursorHidden = false
+        }
+    }
+
+    /// Called when the app quits, so the Mac pointer is never left frozen.
+    func shutdown() {
+        flushTimer?.invalidate()
+        flushTimer = nil
+        capturing = false
+        restorePointer()
+    }
+
     // MARK: Target changes
 
     func setTarget(_ t: Int) {
@@ -139,6 +259,7 @@ final class KeyBridge {
         // keys when something really changed, or a held key / Ctrl+C is cut off mid-press (KVM-20, KVM-21).
         let changed = t != oldTarget || wasSwallowing != swallowing
         if changed && (wasSwallowing || swallowing) { releaseAll() }
+        updateCapture()
     }
 
     /// Release every key on the host (used when switching target or losing the link).

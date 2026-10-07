@@ -52,6 +52,10 @@ bool relayReport(const uint8_t *report);
 // 0 = released) to the connected host. Returns false if no host is connected.
 bool relayConsumer(uint16_t usage);
 
+// Sends one mouse report to the connected host: buttons (bit 0 left, 1 right, 2 middle), movement,
+// vertical and horizontal wheel. Returns false if no host is connected or the send failed.
+bool relayMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel, int8_t pan);
+
 // Types letters, digits, spaces and newlines. Other characters are skipped.
 void typeText(const char *text);
 

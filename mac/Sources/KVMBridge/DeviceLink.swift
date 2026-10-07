@@ -112,6 +112,12 @@ final class DeviceLink {
         send(dir < 0 ? "@S L\n" : "@S R\n")
     }
 
+    /// Sends mouse movement to the PC: buttons (1 left, 2 right, 4 middle), movement, wheel, pan.
+    func sendMouse(buttons: Int, dx: Int, dy: Int, wheel: Int, pan: Int) {
+        guard isReady else { return }
+        send("@M \(buttons) \(dx) \(dy) \(wheel) \(pan)\n")
+    }
+
     /// Tells the board the Mac is asleep, locked or off (true) or back (false): it blanks its screen.
     func sendSleep(_ asleep: Bool) {
         guard isReady else { return }

@@ -41,7 +41,13 @@ int pendingStep = 0;
 int pendingSleep = -1;     // "@Z 1" = 1, "@Z 0" = 0, none = -1
 volatile bool keySeen = false;  // a key report arrived since last asked
 uint32_t linkLostAt = 0;  // when the link last went down (0 = since boot)
-int pendingGoto = -1;  // target number asked for by "@G n", or -1
+int pendingGoto = -1;
+// Mouse (KVM-9): movement from the Mac app is summed here and sent to the PC at most every few ms;
+// if a send fails the rest stays and is retried, so no movement is lost.
+int mouseButtons = 0, sentButtons = 0;
+long accDx = 0, accDy = 0, accW = 0, accP = 0;
+bool mouseDirty = false;
+uint32_t lastMouseSend = 0;  // target number asked for by "@G n", or -1
 uint8_t target = 0;
 
 int hexValue(char c) {
@@ -67,6 +73,36 @@ void sendState() {
   LINK.printf("@V %s %s\n", KVM_VERSION, KVM_BUILD);
 }
 
+int8_t clamp8(long v) { return static_cast<int8_t>(v > 127 ? 127 : (v < -127 ? -127 : v)); }
+
+// Sends the summed mouse movement to the PC in chunks of at most 127.
+void pumpMouse() {
+  if (!mouseDirty) return;
+  if (!kbd::connected()) {  // nobody to send to: drop it
+    accDx = accDy = accW = accP = 0;
+    sentButtons = mouseButtons;
+    mouseDirty = false;
+    return;
+  }
+  const uint32_t now = millis();
+  if (now - lastMouseSend < 6) return;
+  const int8_t dx = clamp8(accDx), dy = clamp8(accDy), w = clamp8(accW), p = clamp8(accP);
+  const bool buttonsChanged = (mouseButtons != sentButtons);
+  if (dx == 0 && dy == 0 && w == 0 && p == 0 && !buttonsChanged) {
+    mouseDirty = false;
+    return;
+  }
+  if (kbd::relayMouse(static_cast<uint8_t>(mouseButtons), dx, dy, w, p)) {
+    accDx -= dx;
+    accDy -= dy;
+    accW -= w;
+    accP -= p;
+    sentButtons = mouseButtons;
+    lastMouseSend = now;
+    mouseDirty = (accDx != 0 || accDy != 0 || accW != 0 || accP != 0);
+  }
+}
+
 void handleLine(const char *l) {
   if (l[0] != '@') return;  // the firmware's own debug text
   lastHeard = millis();
@@ -75,6 +111,18 @@ void handleLine(const char *l) {
     changedFlag = true;
   }
   switch (l[1]) {
+    case 'M': {  // "@M <buttons> <dx> <dy> <wheel> <pan>": decimal numbers
+      int b, dx, dy, w, p;
+      if (sscanf(l + 2, "%d %d %d %d %d", &b, &dx, &dy, &w, &p) == 5) {
+        mouseButtons = b & 7;
+        accDx += dx;
+        accDy += dy;
+        accW += w;
+        accP += p;
+        mouseDirty = true;
+      }
+      break;
+    }
     case 'Z':  // "@Z 1": the Mac is asleep, locked or off. "@Z 0": it is back.
       if (l[2] == ' ' && (l[3] == '0' || l[3] == '1')) pendingSleep = l[3] - '0';
       break;
@@ -136,6 +184,7 @@ void poll() {
       else overflow = true;
     }
   }
+  pumpMouse();
   if (linked && millis() - lastHeard > kLinkTimeoutMs) {
     linked = false;
     linkLostAt = millis();

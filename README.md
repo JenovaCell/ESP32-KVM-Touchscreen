@@ -102,7 +102,10 @@ If something looks wrong:
    (After flashing 0.8.0, re-pair the PC once; see the CHANGELOG.)
 6. When the Mac sleeps, its display sleeps or you lock it, the board's screen goes dark and comes
    back when the Mac wakes, when you type, or when you touch the screen.
-7. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
+7. On WORK or GAME the Mac's mouse or trackpad moves that PC's pointer (clicks and scrolling too); on
+   MAC it works as usual. A three-finger swipe, Mission Control or Cmd+Tab gives control back to the Mac.
+   Pointer speed and scroll direction are in the Mac menu. (After flashing 0.10.0, re-pair the PC once.)
+8. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
    Left Command (toward GAME) or Right Command (toward WORK) on the Mac. The work laptop and
    gaming PC stay connected to the board on every screen, so switching does not wait for a
    reconnect; only the PC of the current target receives keys. New devices can only be paired
