@@ -250,7 +250,8 @@ final class KeyBridge {
         capturing = want
         if want {
             frozenPoint = CGEvent(source: nil)?.location ?? .zero
-            CGSetLocalEventsSuppressionInterval(0)  // moving the pointer back must not pause the mouse
+            // Moving the pointer back must not pause the mouse for a moment.
+            CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
             _ = CGAssociateMouseAndMouseCursorPosition(0)
             CGDisplayHideCursor(CGMainDisplayID())
             cursorHidden = true

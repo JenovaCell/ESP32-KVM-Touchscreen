@@ -11,7 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build app
-        run: ./mac/build_app.sh
+        shell: bash
+        run: |
+          # Compiler errors are also written as annotations so they can be read without the full log.
+          set +e
+          ./mac/build_app.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
+          status=${PIPESTATUS[0]}
+          grep -E "error:" "$RUNNER_TEMP/build.log" | head -20 | while IFS= read -r line; do echo "::error::${line}"; done
+          exit $status
       - name: Zip
         run: ditto -c -k --keepParent mac/build/KVMBridge.app KVMBridge.zip
       - uses: actions/upload-artifact@v4
