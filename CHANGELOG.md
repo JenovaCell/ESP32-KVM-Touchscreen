@@ -9,6 +9,25 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.11.0] - 2026-10-08
+
+Mouse on/off per machine (KVM-28) and a fix attempt for the Mac pointer moving on WORK (KVM-29).
+
+### Added
+- Mac menu (KVM-28): "Mouse on Work PC" and "Mouse on Game PC", each a check mark, both on by default and
+  remembered. When a machine's check is off, the Mac pointer is left alone while that machine is the
+  target (no freezing, no mouse sent) and the keyboard still goes to that PC. The Mac always has its mouse.
+
+### Fixed (unverified)
+- Mac app (KVM-29): with Elgato Studio in front the Mac pointer also moved while WORK had the mouse, because
+  that app links the pointer to the mouse again. The app now re-applies the freeze a few times a second and
+  moves the pointer back to where it froze if it drifts. If it still moves on your Mac, switch off
+  "Mouse on Work PC" as a workaround.
+
+### Status
+- Mac app only: the firmware is unchanged from 0.10.0, so no flashing and no re-pairing.
+- Unverified on hardware.
+
 ## [0.10.0] - 2026-10-07
 
 Mouse sharing: the pointer follows the target together with the keyboard (KVM-9).

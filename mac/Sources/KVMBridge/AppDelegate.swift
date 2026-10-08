@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let speedChoices: [(String, Double)] = [
         ("0.5x", 0.5), ("0.75x", 0.75), ("1x", 1.0), ("1.5x", 1.5), ("2x", 2.0),
     ]
+    private let mouseWorkItem = NSMenuItem(title: "Mouse on Work PC", action: nil, keyEquivalent: "")
+    private let mouseGameItem = NSMenuItem(title: "Mouse on Game PC", action: nil, keyEquivalent: "")
     private let invertItem = NSMenuItem(title: "Invert scroll direction (Work/Game)", action: nil, keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -111,6 +113,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(copy)
         menu.addItem(.separator())
         menu.addItem(autoItem)
+        mouseWorkItem.target = self
+        mouseWorkItem.action = #selector(toggleMouseWork)
+        mouseWorkItem.state = keys.mouseOnWork ? .on : .off
+        menu.addItem(mouseWorkItem)
+        mouseGameItem.target = self
+        mouseGameItem.action = #selector(toggleMouseGame)
+        mouseGameItem.state = keys.mouseOnGame ? .on : .off
+        menu.addItem(mouseGameItem)
         let speedItem = NSMenuItem(title: "Pointer speed (Work/Game)", action: nil, keyEquivalent: "")
         speedItem.submenu = speedMenu
         for (title, value) in speedChoices {
@@ -157,6 +167,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let value = sender.representedObject as? Double else { return }
         keys.pointerScale = value
         for item in speedMenu.items { item.state = (item === sender) ? .on : .off }
+    }
+
+    @objc private func toggleMouseWork() {
+        keys.mouseOnWork.toggle()
+        mouseWorkItem.state = keys.mouseOnWork ? .on : .off
+    }
+
+    @objc private func toggleMouseGame() {
+        keys.mouseOnGame.toggle()
+        mouseGameItem.state = keys.mouseOnGame ? .on : .off
     }
 
     @objc private func toggleInvertScroll() {

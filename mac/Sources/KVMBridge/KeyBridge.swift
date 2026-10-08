@@ -27,6 +27,8 @@ final class KeyBridge {
         .leftMouseDragged, .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel,
     ]
     private var capturing = false
+    private var frozenPoint = CGPoint.zero  // where the Mac pointer was frozen
+    private var lastReassert = Date.distantPast
     private var cursorHidden = false
     private var mouseButtons = 0
     private var sentMouseButtons = 0
@@ -38,6 +40,28 @@ final class KeyBridge {
         return v > 0 ? v : 1.0
     }() {
         didSet { UserDefaults.standard.set(pointerScale, forKey: "pointerScale") }
+    }
+    /// Per-machine mouse switches (menu settings, remembered). The Mac always has its mouse.
+    var mouseOnWork: Bool = (UserDefaults.standard.object(forKey: "mouseOnWork") as? Bool) ?? true {
+        didSet {
+            UserDefaults.standard.set(mouseOnWork, forKey: "mouseOnWork")
+            updateCapture()
+        }
+    }
+    var mouseOnGame: Bool = (UserDefaults.standard.object(forKey: "mouseOnGame") as? Bool) ?? true {
+        didSet {
+            UserDefaults.standard.set(mouseOnGame, forKey: "mouseOnGame")
+            updateCapture()
+        }
+    }
+    /// True while the pointer belongs to the PC of the current target (target is Work or Game, and its switch is on).
+    private var mouseActive: Bool {
+        guard swallowing else { return false }
+        switch target {
+        case 1: return mouseOnWork
+        case 2: return mouseOnGame
+        default: return false
+        }
     }
     /// Flips the scroll direction sent to the PC (menu setting, remembered).
     var invertScroll: Bool = UserDefaults.standard.bool(forKey: "invertScroll") {
@@ -162,7 +186,7 @@ final class KeyBridge {
         // A button that went down on the Mac before capture started goes up on the Mac too.
         func button(_ bit: Int, down: Bool) -> Unmanaged<CGEvent>? {
             if down {
-                guard swallowing else { return pass }
+                guard mouseActive else { return pass }
                 mouseButtons |= bit
             } else {
                 guard mouseButtons & bit != 0 else { return pass }
@@ -173,19 +197,25 @@ final class KeyBridge {
         }
         switch type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            guard swallowing else { return pass }
+            guard mouseActive else { return pass }
             accX += Double(event.getIntegerValueField(.mouseEventDeltaX))
             accY += Double(event.getIntegerValueField(.mouseEventDeltaY))
+            // Some apps (Elgato Studio) link the pointer to the mouse again. If the Mac pointer drifted
+            // from where it froze, put it back (KVM-29).
+            let here = event.location
+            if abs(here.x - frozenPoint.x) > 1 || abs(here.y - frozenPoint.y) > 1 {
+                CGWarpMouseCursorPosition(frozenPoint)
+            }
             return nil
         case .leftMouseDown: return button(1, down: true)
         case .leftMouseUp: return button(1, down: false)
         case .rightMouseDown: return button(2, down: true)
         case .rightMouseUp: return button(2, down: false)
         case .otherMouseDown, .otherMouseUp:
-            guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else { return swallowing ? nil : pass }
+            guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else { return mouseActive ? nil : pass }
             return button(4, down: type == .otherMouseDown)
         case .scrollWheel:
-            guard swallowing else { return pass }
+            guard mouseActive else { return pass }
             let sign = invertScroll ? -1.0 : 1.0
             accWheel += sign * Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
             accPan += sign * Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis2))
@@ -197,6 +227,11 @@ final class KeyBridge {
 
     /// Sends the movement collected since the last call (called every 10 ms while capturing, and on clicks).
     private func flushMouse() {
+        // Keep the freeze in place even if an app undid it (checked a few times a second).
+        if capturing, Date().timeIntervalSince(lastReassert) > 0.25 {
+            lastReassert = Date()
+            _ = CGAssociateMouseAndMouseCursorPosition(0)
+        }
         let dx = Int((accX * pointerScale).rounded()), dy = Int((accY * pointerScale).rounded())
         let w = Int(accWheel.rounded()), p = Int(accPan.rounded())
         guard dx != 0 || dy != 0 || w != 0 || p != 0 || mouseButtons != sentMouseButtons else { return }
@@ -210,10 +245,12 @@ final class KeyBridge {
 
     /// Freezes (and hides) the Mac pointer while the PC has the mouse; gives it back otherwise.
     private func updateCapture() {
-        let want = swallowing
+        let want = mouseActive
         if want == capturing { return }
         capturing = want
         if want {
+            frozenPoint = CGEvent(source: nil)?.location ?? .zero
+            CGSetLocalEventsSuppressionInterval(0)  // moving the pointer back must not pause the mouse
             _ = CGAssociateMouseAndMouseCursorPosition(0)
             CGDisplayHideCursor(CGMainDisplayID())
             cursorHidden = true

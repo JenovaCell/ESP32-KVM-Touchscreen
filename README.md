@@ -104,7 +104,8 @@ If something looks wrong:
    back when the Mac wakes, when you type, or when you touch the screen.
 7. On WORK or GAME the Mac's mouse or trackpad moves that PC's pointer (clicks and scrolling too); on
    MAC it works as usual. A three-finger swipe, Mission Control or Cmd+Tab gives control back to the Mac.
-   Pointer speed and scroll direction are in the Mac menu. (After flashing 0.10.0, re-pair the PC once.)
+   "Mouse on Work PC" and "Mouse on Game PC" check marks in the Mac menu turn the mouse for each machine on or off
+   (the Mac always has its mouse). Pointer speed and scroll direction are in the Mac menu too. (After flashing 0.10.0, re-pair the PC once.)
 8. Switch targets by tapping the left or right half of the board's screen, or by double-tapping
    Left Command (toward GAME) or Right Command (toward WORK) on the Mac. The work laptop and
    gaming PC stay connected to the board on every screen, so switching does not wait for a
