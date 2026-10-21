@@ -32,6 +32,14 @@ Fix for the lag when switching macOS desktops (Spaces) while WORK or GAME has th
   could not poll USB, so hopping across targets (GAME -> MAC -> WORK while swiping desktops) queued
   up behind the intermediate hops. Now only the final target costs one redraw and one commit.
   Tradeoff: if the board loses power within 2 s of a switch, it boots on the previously saved target.
+- Build: the firmware builds again with the current Arduino core (3.3.12, espressif32 platform
+  8.0.0). That core only declares the USB serial objects when CDC-on-boot is set, so
+  `platformio.ini` now sets `ARDUINO_USB_CDC_ON_BOOT=1` and the Mac link uses the board's USB
+  Serial/JTAG port via `Serial` (HWCDC), as intended; without it the build fails with
+  `'USBSerial' was not declared in this scope` in `maclink.cpp`. Side effect: firmware debug text
+  (`Serial`) now shares the USB port instead of staying on the UART pins; the Mac app ignores
+  lines that do not start with `@`, so the link protocol is unaffected. Folded into 0.12.0
+  because it had not been released yet.
 
 ### Status
 - Unverified on hardware. Firmware and Mac app change together: flash the firmware and replace
