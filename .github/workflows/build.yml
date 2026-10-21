@@ -69,7 +69,7 @@ jobs:
         run: |
           B=.pio/build/cyd28
           PKG=~/.platformio/packages
-          python $PKG/tool-esptoolpy/esptool.py --chip esp32s3 merge_bin \
+          $PKG/tool-esptool/esptool --chip esp32s3 merge_bin \
             -o $B/kvm-merged.bin --flash_mode dio --flash_freq 80m --flash_size 16MB \
             0x0 $B/bootloader.bin \
             0x8000 $B/partitions.bin \
