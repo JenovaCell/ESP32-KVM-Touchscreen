@@ -40,6 +40,9 @@ Fix for the lag when switching macOS desktops (Spaces) while WORK or GAME has th
   (`Serial`) now shares the USB port instead of staying on the UART pins; the Mac app ignores
   lines that do not start with `@`, so the link protocol is unaffected. Folded into 0.12.0
   because it had not been released yet.
+- CI: the release workflow's merge step now calls the `tool-esptool` binary
+  (`$PKG/tool-esptool/esptool`); esptool ships as a standalone tool in current PlatformIO
+  packaging, so the old `tool-esptoolpy/esptool.py` path no longer exists on the runner.
 
 ### Status
 - Unverified on hardware. Firmware and Mac app change together: flash the firmware and replace
