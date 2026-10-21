@@ -195,6 +195,19 @@ static int posOf(Target t) {
 
 static void showCurrent() { drawTarget(kSpatial[spatialPos]); }
 
+// Deferred switch work (space-switch lag fix): a full TFT redraw over SPI and an
+// NVS commit in prefs.putUChar() each block this loop for tens of ms, during
+// which USB lines from the Mac (the next @G/@K) are not polled. moveTo() only
+// records the work; loop() does it once the target has settled, so hopping
+// across targets (e.g. GAME -> MAC -> WORK while swiping Mac desktops) costs
+// one redraw and one flash commit for the final target instead of one each
+// per hop. The Mac is told the new target immediately, before either happens.
+static bool redrawPending = false;
+static bool savePending = false;
+static uint32_t lastMoveAt = 0;
+static const uint32_t kRedrawSettleMs = 60;    // quiet time before redrawing
+static const uint32_t kSaveSettleMs = 2000;    // quiet time before saving to NVS
+
 static kbd::Slot slotFor(Target t) {
   switch (t) {
     case Target::Work: return kbd::Slot::Work;
@@ -210,8 +223,11 @@ static void moveTo(int next) {
   const Target t = kSpatial[spatialPos];
   kbd::setSlot(slotFor(t));
   maclink::publishTarget(static_cast<uint8_t>(t));
-  showCurrent();
-  prefs.putUChar("target", static_cast<uint8_t>(t));
+  // Redraw and NVS save are deferred (see above): the switch itself, the BLE
+  // release on the old host and the @T to the Mac all happen right now.
+  redrawPending = true;
+  savePending = true;
+  lastMoveAt = millis();
   Serial.println(kStyles[static_cast<int>(t)].label);
 }
 
@@ -230,7 +246,10 @@ static void setScreen(bool on) {
   if (on == screenOn) return;
   screenOn = on;
   digitalWrite(KVM_BACKLIGHT_PIN, on ? HIGH : LOW);
-  if (on) showCurrent();
+  if (on) {
+    showCurrent();  // draws the current target, so a pending switch redraw is done
+    redrawPending = false;
+  }
 }
 
 void setup() {
@@ -272,7 +291,10 @@ void loop() {
   uint32_t code;
   if (kbd::takePasskey(code)) drawPasskey(code);
   // `|` not `||`: both flags must be read every time.
-  if (kbd::takeChanged() | maclink::takeChanged()) showCurrent();  // also ends the pairing overlay
+  if (kbd::takeChanged() | maclink::takeChanged()) {  // also ends the pairing overlay
+    showCurrent();  // draws the current target, so a pending switch redraw is done
+    redrawPending = false;
+  }
   int macStep;
   if (maclink::takeStep(macStep)) step(macStep);
   uint8_t macGoto;
@@ -332,6 +354,16 @@ void loop() {
     }
   }
   wasDown = down;
+
+  // Deferred switch work, once the target has settled (see moveTo).
+  if (redrawPending && now - lastMoveAt >= kRedrawSettleMs) {
+    redrawPending = false;
+    showCurrent();
+  }
+  if (savePending && now - lastMoveAt >= kSaveSettleMs) {
+    savePending = false;
+    prefs.putUChar("target", static_cast<uint8_t>(kSpatial[spatialPos]));
+  }
 
   delay(3);  // short, so keystrokes from the Mac are relayed quickly
 }

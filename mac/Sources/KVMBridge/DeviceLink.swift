@@ -38,6 +38,10 @@ final class DeviceLink {
     private var lastHeard = Date.distantPast
     private var attempt = 0
     private var lastStatus = ""
+    /// Last values forwarded to the app, so the board's per-second heartbeat
+    /// repeats do not churn the UI (menu title, target state) every second.
+    private var lastTarget: Int?
+    private var lastDeviceVersion: String?
     private let savedPathKey = "boardSerialPath"
 
     // Key report bookkeeping.
@@ -240,6 +244,8 @@ final class DeviceLink {
         currentPath = ""
         rxBuffer.removeAll()
         lastSent = nil
+        lastTarget = nil
+        lastDeviceVersion = nil
         cancelResends()
         isReady = false
         status("Lost the board (\(reason)), looking again…")
@@ -285,11 +291,19 @@ final class DeviceLink {
                 isReady = true
                 status("Connected (USB)")
             }
-            onTarget?(target)
+            // The board repeats its target with every heartbeat (once a second).
+            // Forward only real changes: a repeat carries no new information.
+            if target != lastTarget {
+                lastTarget = target
+                onTarget?(target)
+            }
         case "@R":  // "@R <board ms> <+|-> <hex>": what the board relayed to the PC
             trace("board  " + (parts.count == 2 ? parts[1] : ""))
         case "@V":
-            if parts.count == 2 { onDeviceVersion?(parts[1]) }
+            if parts.count == 2, parts[1] != lastDeviceVersion {
+                lastDeviceVersion = parts[1]
+                onDeviceVersion?(parts[1])
+            }
         default:
             break
         }

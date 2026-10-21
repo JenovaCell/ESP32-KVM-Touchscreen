@@ -9,6 +9,34 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.12.0] - 2026-10-21
+
+Fix for the lag when switching macOS desktops (Spaces) while WORK or GAME has the keyboard (KVM-30).
+
+### Fixed
+- Mac app (KVM-30): a Space change now gives the keyboard and pointer back to the Mac immediately.
+  Before, `AutoSwitch` waited a fixed 150 ms after the Space changed before acting, even though
+  reclaiming for the Mac does not depend on which app is in front. With "Auto-switch by app" on there
+  is an immediate apply plus one re-check after 150 ms (the frontmost app can settle late); rapid
+  Space hops coalesce into a single re-check.
+- Mac app (KVM-30): auto-switch no longer sends a `@G` command (or a log line, which rebuilds the
+  status menu) when the board is already on the target the front app asks for. App activations and
+  Space changes are frequent, so most of those commands were pure round-trips.
+- Mac app (KVM-30): the board repeats its target and version with every 1-second heartbeat;
+  `DeviceLink` now forwards `@T`/`@V` to the rest of the app only when the value actually changed,
+  instead of refreshing the menu title and target state every second.
+- Board (KVM-30): `moveTo()` now does only the instant work — release keys on the host being left
+  and publish the new target to the Mac — and defers the expensive parts: the full TFT redraw waits
+  until the target has settled for 60 ms and the NVS save (`prefs.putUChar`, a flash commit) until
+  2 s of quiet. Before, every hop paid a full redraw plus a flash commit while the board's loop
+  could not poll USB, so hopping across targets (GAME -> MAC -> WORK while swiping desktops) queued
+  up behind the intermediate hops. Now only the final target costs one redraw and one commit.
+  Tradeoff: if the board loses power within 2 s of a switch, it boots on the previously saved target.
+
+### Status
+- Unverified on hardware. Firmware and Mac app change together: flash the firmware and replace
+  the Mac app together. No HID report changes, so no re-pairing is expected.
+
 ## [0.11.0] - 2026-10-08
 
 Mouse on/off per machine (KVM-28) and a fix attempt for the Mac pointer moving on WORK (KVM-29).
