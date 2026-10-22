@@ -9,6 +9,31 @@ change behaviour).
 "Verified" means checked on the real hardware. "Unverified" means it compiles in CI but has not
 been tried on the board yet.
 
+## [0.12.1] - 2026-10-21
+
+Patch release: the board firmware in v0.12.0 as published (build 68) does not boot on the
+board. No application code changes — same firmware and Mac app as 0.12.0, rebuilt on the
+platform generation the project was developed against. The Mac app from 0.12.0 stays valid;
+only the board needs re-flashing.
+
+### Fixed
+- Board (KVM-31): v0.12.0 (build 68) boot-looped on the board — splash screen, Bluetooth
+  init, then Guru Meditation (LoadProhibited) inside `esp_bt_controller_init`'s first
+  allocations, rebooting in under a second. Backtrace: `setup()` → `kbd::begin()` →
+  `NimBLEDevice::init()` → `esp_bt_controller_init()` → `malloc` on a corrupted heap
+  free-list pointer. Cause: `firmware/platformio.ini` left the PlatformIO platform
+  unpinned, and current builds resolve espressif32 8.0.0 (Arduino core 3.3.12) instead of
+  the 7.0.1 (core 2.0.17) of early October; the newer core's Bluetooth stack crashes on
+  this board before `setup()` finishes. (The same drift caused the USBSerial compile
+  failure and the esptool packaging change, both first seen 2026-10-21.) The platform is
+  now pinned to `espressif32@7.0.1`; unpin only as part of a deliberate core + NimBLE
+  upgrade tested on hardware. Verified on the board: the pinned build boots, pairs and
+  holds the WORK link.
+- CI: the release workflow's merge step calls `python $PKG/tool-esptoolpy/esptool.py`
+  again — with the platform pinned to 7.0.1, esptool ships in the tool-esptoolpy package
+  (the standalone `tool-esptool` binary path used in build 68 belongs to the 8.0.0
+  generation).
+
 ## [0.12.0] - 2026-10-21
 
 Fix for the lag when switching macOS desktops (Spaces) while WORK or GAME has the keyboard (KVM-30).
